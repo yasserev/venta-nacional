@@ -710,14 +710,21 @@ app.post('/api/viajes/:id/finalizar-despacho', authenticateToken, checkRole(['De
   }
 });
 
-// Servir la compilación del frontend en Producción
-app.use(express.static(path.join(__dirname, 'dist')));
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
+// ── Modo local: servir frontend compilado y arrancar servidor ──────────────
+// En Vercel, esto lo hace automáticamente la plataforma con outputDirectory
+if (!process.env.VERCEL) {
+  app.use(express.static(path.join(__dirname, 'dist')));
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor backend escuchando en puerto ${PORT}`);
-});
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  });
+
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor backend escuchando en puerto ${PORT}`);
+  });
+}
+
+// ── Exportar app para Vercel Serverless Functions ──────────────────────────
+export default app;
+
