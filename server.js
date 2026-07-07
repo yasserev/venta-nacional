@@ -156,8 +156,20 @@ if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('user:passwor
       connectionString: process.env.DATABASE_URL,
       ssl: {
         rejectUnauthorized: true  // ✅ Verificar certificado SSL (protección MITM)
-      }
+      },
+      // Configuración para Neon.tech (serverless) — evita desconexiones idle
+      max: 5,                        // máximo de conexiones en el pool
+      idleTimeoutMillis: 10000,      // cerrar conexiones inactivas tras 10s
+      connectionTimeoutMillis: 5000, // timeout de conexión nueva
+      keepAlive: true
     });
+
+    // Manejar errores de conexión idle SIN crashear el servidor
+    pool.on('error', (err) => {
+      console.error('⚠️  Error inesperado en cliente idle del pool (reconectando automáticamente):', err.message);
+      // No relanzamos el error — el pool creará nuevas conexiones automáticamente
+    });
+
     // Test connection
     const client = await pool.connect();
     console.log('✅ Conexión exitosa a la base de datos de Neon.tech (Postgres)');
@@ -170,6 +182,7 @@ if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('user:passwor
   console.log('⚠️ DATABASE_URL no configurada o es plantilla por defecto. Usando Mock DB temporal en RAM.');
   useMock = true;
 }
+
 
 // Middleware: Authenticate JWT Token
 const authenticateToken = (req, res, next) => {
