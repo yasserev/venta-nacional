@@ -259,6 +259,59 @@ app.get('/api/clientes', authenticateToken, async (req, res) => {
   }
 });
 
+app.post('/api/clientes', authenticateToken, checkRole(['Planificador', 'Administrador']), async (req, res) => {
+  const { razon_social, ruc, direccion } = req.body;
+
+  if (!razon_social || !ruc || !direccion) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios' });
+  }
+
+  const trimmedRazon = razon_social.trim();
+  const trimmedRuc = ruc.trim();
+  const trimmedDir = direccion.trim();
+
+  if (!trimmedRazon || !trimmedRuc || !trimmedDir) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios y no deben estar vacíos' });
+  }
+
+  if (trimmedRuc.length !== 11 || !/^\d+$/.test(trimmedRuc)) {
+    return res.status(400).json({ message: 'El RUC debe tener exactamente 11 dígitos numéricos' });
+  }
+
+  try {
+    if (useMock) {
+      const duplicateSocial = mockData.clientes.some(c => c.razon_social.toLowerCase() === trimmedRazon.toLowerCase());
+      if (duplicateSocial) {
+        return res.status(400).json({ message: 'La razón social del cliente ya existe' });
+      }
+
+      const newClient = {
+        id: mockData.clientes.length + 1,
+        razon_social: trimmedRazon,
+        ruc: trimmedRuc,
+        direccion: trimmedDir
+      };
+      mockData.clientes.push(newClient);
+      res.status(201).json(newClient);
+    } else {
+      const query = `
+        INSERT INTO clientes (razon_social, ruc, direccion)
+        VALUES ($1, $2, $3)
+        RETURNING *
+      `;
+      const result = await pool.query(query, [trimmedRazon, trimmedRuc, trimmedDir]);
+      res.status(201).json(result.rows[0]);
+    }
+  } catch (err) {
+    if (err.code === '23505') {
+      res.status(400).json({ message: 'La razón social del cliente ya existe en el sistema' });
+    } else {
+      console.error('[ERROR POST /api/clientes]', err);
+      res.status(500).json({ message: 'Error interno del servidor' });
+    }
+  }
+});
+
 // Viajes API (Programa de Ventas Semanal)
 app.get('/api/viajes', authenticateToken, async (req, res) => {
   try {

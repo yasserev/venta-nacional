@@ -42,6 +42,15 @@
     origen_despacho: 'Planta Chao'
   };
 
+  // Master Clientes Creation State
+  let showClientModal = false;
+  let clientError = '';
+  let clientForm = {
+    razon_social: '',
+    ruc: '',
+    direccion: ''
+  };
+
   // Cadena de Frío State
   let selectedViajeFrio = null;
   let excelPasteData = '';
@@ -221,6 +230,69 @@
     } catch (err) {
       showNotification('Error al conectar con el servidor', 'danger');
     }
+  }
+
+  // Master Clientes: Submit client creation
+  async function submitClient() {
+    clientError = '';
+    
+    // Validaciones básicas del lado del cliente
+    if (!clientForm.razon_social.trim()) {
+      clientError = 'La razón social es obligatoria';
+      return;
+    }
+    if (!clientForm.ruc.trim() || clientForm.ruc.trim().length !== 11 || !/^\d+$/.test(clientForm.ruc.trim())) {
+      clientError = 'El RUC debe tener exactamente 11 dígitos numéricos';
+      return;
+    }
+    if (!clientForm.direccion.trim()) {
+      clientError = 'La dirección es obligatoria';
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/clientes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          razon_social: clientForm.razon_social.trim(),
+          ruc: clientForm.ruc.trim(),
+          direccion: clientForm.direccion.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showClientModal = false;
+        await fetchClientes(); // Refresh list of clients
+        showNotification('Cliente creado exitosamente');
+        
+        // Auto-select in voyage form if opened from within the Voyage form
+        if (showVoyageModal) {
+          voyageForm.cliente_id = data.id.toString();
+        }
+        
+        // Reset form
+        clientForm = { razon_social: '', ruc: '', direccion: '' };
+      } else {
+        clientError = data.message || 'Error al guardar el cliente';
+      }
+    } catch (err) {
+      clientError = 'Error de conexión con el servidor';
+    }
+  }
+
+  function openNewClientModal() {
+    clientForm = {
+      razon_social: '',
+      ruc: '',
+      direccion: ''
+    };
+    clientError = '';
+    showClientModal = true;
   }
 
   function openNewVoyageModal() {
@@ -918,9 +990,14 @@
               <p style="color: var(--gray-600); font-size: 0.9rem;">Crea, modifica y gestiona las planificaciones de carga nacional</p>
             </div>
             
-            <button class="btn btn-primary" on:click={openNewVoyageModal}>
-              + Programar Nuevo Viaje
-            </button>
+            <div style="display: flex; gap: 12px;">
+              <button class="btn btn-secondary" on:click={openNewClientModal}>
+                + Crear Cliente
+              </button>
+              <button class="btn btn-primary" on:click={openNewVoyageModal}>
+                + Programar Nuevo Viaje
+              </button>
+            </div>
           </div>
 
           <!-- Voyages Table -->
@@ -1278,7 +1355,11 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="cliente-sel">Cliente</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label class="form-label" for="cliente-sel" style="margin-bottom: 0;">Cliente</label>
+              <!-- svelte-ignore a11y-invalid-attribute -->
+              <a href="javascript:void(0)" on:click|preventDefault={openNewClientModal} style="font-size: 0.8rem; font-weight: 600; color: var(--primary); text-decoration: none;">+ Nuevo Cliente</a>
+            </div>
             <select id="cliente-sel" class="form-control" bind:value={voyageForm.cliente_id} required>
               {#each clientes as c}
                 <option value={c.id.toString()}>{c.razon_social} (RUC: {c.ruc})</option>
@@ -1323,3 +1404,48 @@
     </div>
   </div>
 {/if}
+
+<!-- MODAL: ADD NEW CLIENT (PLANIFICADOR) -->
+{#if showClientModal}
+  <div class="modal-overlay" style="z-index: 1050;">
+    <div class="modal-content animate-fade-in" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 style="font-weight: 800; font-size: 1.3rem; color: var(--primary);">Registrar Nuevo Cliente</h3>
+        <button class="btn btn-ghost" on:click={() => showClientModal = false} style="padding: 4px 8px; font-size: 0.8rem;">✕</button>
+      </div>
+
+      <form on:submit|preventDefault={submitClient}>
+        {#if clientError}
+          <div style="background-color: var(--danger-light); color: var(--danger); padding: 10px 14px; border-radius: var(--radius-sm); margin-bottom: 16px; font-size: 0.85rem; font-weight: 500;">
+            {clientError}
+          </div>
+        {/if}
+
+        <div class="form-group">
+          <label class="form-label" for="client-razon">Razón Social</label>
+          <input type="text" id="client-razon" class="form-control" bind:value={clientForm.razon_social} required placeholder="ej. Supermercados Peruanos S.A." />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="client-ruc">RUC</label>
+          <input type="text" id="client-ruc" class="form-control" bind:value={clientForm.ruc} required maxlength="11" placeholder="ej. 20100018612" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="client-dir">Dirección Fiscal</label>
+          <input type="text" id="client-dir" class="form-control" bind:value={clientForm.direccion} required placeholder="ej. Av. Larco 1230, Miraflores, Lima" />
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+          <button type="button" class="btn btn-ghost" on:click={() => showClientModal = false}>
+            Cancelar
+          </button>
+          <button type="submit" class="btn btn-primary">
+            Crear Cliente
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
