@@ -57,7 +57,7 @@ let useMock = false;
 
 const mockData = {
   usuarios: [
-    { id: 1, email: 'yespinoza@camposol.com', password_hash: bcrypt.hashSync('Camposol2026!', 10), nombre: 'Yasser Espinoza', role: 'Administrador' }
+    { id: 1, email: 'yespinoza@camposol.com', password_hash: bcrypt.hashSync('Camposol2026!', 10), nombre: 'Yasser Espinoza', role: 'Administrador', requiere_cambio_clave: false }
   ],
   clientes: [
     { id: 1, razon_social: 'Supermercados Peruanos S.A.', ruc: '20100018612', direccion: 'Av. Larco 1230, Miraflores, Lima' },
@@ -144,19 +144,65 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
         return res.status(400).json({ message: 'Credenciales incorrectas' });
       }
     }
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, nombre: user.nombre },
-      JWT_SECRET, { expiresIn: '8h' }
-    );
-    res.json({ token, user: { id: user.id, email: user.email, role: user.role, nombre: user.nombre } });
+    const safeUser = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      nombre: user.nombre,
+      requiere_cambio_clave: user.requiere_cambio_clave ?? true
+    };
+    const token = jwt.sign(safeUser, JWT_SECRET, { expiresIn: '8h' });
+    res.json({ token, user: safeUser });
   } catch (err) {
     console.error('[ERROR /api/auth/login]', err);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 });
 
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  res.json({ user: req.user });
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    if (useMock) {
+      const user = mockData.usuarios.find(u => u.id === req.user.id);
+      if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
+      const { password_hash, ...safeUser } = user;
+      res.json({ user: safeUser });
+    } else {
+      const result = await pool.query('SELECT id, email, nombre, role, requiere_cambio_clave FROM usuarios WHERE id = $1', [req.user.id]);
+      if (result.rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+      res.json({ user: result.rows[0] });
+    }
+  } catch (err) {
+    console.error('[ERROR /api/auth/me]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.post('/api/auth/cambiar-clave', authenticateToken, async (req, res) => {
+  const { password_nueva } = req.body;
+  if (!password_nueva || password_nueva.trim().length < 6) {
+    return res.status(400).json({ message: 'La nueva contraseña debe tener al menos 6 caracteres' });
+  }
+  const hash = bcrypt.hashSync(password_nueva.trim(), 10);
+  try {
+    if (useMock) {
+      const idx = mockData.usuarios.findIndex(u => u.id === req.user.id);
+      if (idx === -1) return res.status(404).json({ message: 'Usuario no encontrado' });
+      mockData.usuarios[idx].password_hash = hash;
+      mockData.usuarios[idx].requiere_cambio_clave = false;
+      const { password_hash, ...safeUser } = mockData.usuarios[idx];
+      res.json({ message: 'Contraseña actualizada con éxito', user: safeUser });
+    } else {
+      const result = await pool.query(
+        'UPDATE usuarios SET password_hash = $1, requiere_cambio_clave = FALSE WHERE id = $2 RETURNING id, email, nombre, role, requiere_cambio_clave',
+        [hash, req.user.id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+      res.json({ message: 'Contraseña actualizada con éxito', user: result.rows[0] });
+    }
+  } catch (err) {
+    console.error('[ERROR POST /api/auth/cambiar-clave]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
 });
 
 // ── USUARIOS ─────────────────────────────────────────────────────────────────
@@ -167,7 +213,7 @@ app.get('/api/usuarios', authenticateToken, checkRole(['Administrador']), async 
       const list = mockData.usuarios.map(({ password_hash, ...u }) => u);
       res.json(list);
     } else {
-      const result = await pool.query('SELECT id, email, nombre, role, creado_en FROM usuarios ORDER BY nombre ASC');
+      const result = await pool.query('SELECT id, email, nombre, role, requiere_cambio_clave, creado_en FROM usuarios ORDER BY nombre ASC');
       res.json(result.rows);
     }
   } catch (err) {
@@ -196,13 +242,13 @@ app.post('/api/usuarios', authenticateToken, checkRole(['Administrador']), async
       if (mockData.usuarios.some(u => u.email === trimEmail)) {
         return res.status(400).json({ message: 'El correo electrónico ya está registrado' });
       }
-      const newU = { id: mockData.usuarios.length + 1, email: trimEmail, password_hash: hash, nombre: trimNombre, role, creado_en: new Date().toISOString() };
+      const newU = { id: mockData.usuarios.length + 1, email: trimEmail, password_hash: hash, nombre: trimNombre, role, requiere_cambio_clave: true, creado_en: new Date().toISOString() };
       mockData.usuarios.push(newU);
       const { password_hash, ...safeUser } = newU;
       res.status(201).json(safeUser);
     } else {
       const result = await pool.query(
-        'INSERT INTO usuarios (email, password_hash, nombre, role) VALUES ($1, $2, $3, $4) RETURNING id, email, nombre, role, creado_en',
+        'INSERT INTO usuarios (email, password_hash, nombre, role, requiere_cambio_clave) VALUES ($1, $2, $3, $4, TRUE) RETURNING id, email, nombre, role, requiere_cambio_clave, creado_en',
         [trimEmail, hash, trimNombre, role]
       );
       res.status(201).json(result.rows[0]);

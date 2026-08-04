@@ -17,6 +17,7 @@ CREATE TABLE usuarios (
     password_hash VARCHAR(255) NOT NULL,
     nombre VARCHAR(100) NOT NULL,
     role VARCHAR(50) NOT NULL CHECK (role IN ('Planificador', 'Cadena de frío', 'Despacho', 'Administrador')),
+    requiere_cambio_clave BOOLEAN DEFAULT TRUE,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -126,5 +127,5 @@ INSERT INTO responsables_despacho (nombre, dni) VALUES
 ('Carlos Rodríguez', '52109834');
 
 -- Usuario Administrador Inicial
-INSERT INTO usuarios (email, password_hash, nombre, role) VALUES
-('yespinoza@camposol.com', '$2a$10$V.Tdwe4YP2MJtMsZIuo4SObBdN7BjU3UHSOPJCd54.btOjbprlb6C', 'Yasser Espinoza', 'Administrador');
+INSERT INTO usuarios (email, password_hash, nombre, role, requiere_cambio_clave) VALUES
+('yespinoza@camposol.com', '$2a$10$V.Tdwe4YP2MJtMsZIuo4SObBdN7BjU3UHSOPJCd54.btOjbprlb6C', 'Yasser Espinoza', 'Administrador', FALSE);

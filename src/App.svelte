@@ -91,6 +91,11 @@
   let respForm = { nombre: '', dni: '' };
   let respError = '';
 
+  // ── Forced Password Change State ─────────────────────────────────────────────
+  let newPasswordForm = { nueva_clave: '', confirmar_clave: '' };
+  let newPasswordError = '';
+  let isChangingPassword = false;
+
   // ── Notifications ──────────────────────────────────────────────────────────
   let notification = { show: false, message: '', type: 'success' };
   function showNotification(message, type = 'success') {
@@ -306,6 +311,40 @@
     } catch {
       showNotification('Error de conexión', 'danger');
     }
+  }
+
+  async function submitCambioClave() {
+    newPasswordError = '';
+    const { nueva_clave, confirmar_clave } = newPasswordForm;
+    if (!nueva_clave || !confirmar_clave) {
+      newPasswordError = 'Ambos campos son obligatorios'; return;
+    }
+    if (nueva_clave.length < 6) {
+      newPasswordError = 'La contraseña debe tener al menos 6 caracteres'; return;
+    }
+    if (nueva_clave !== confirmar_clave) {
+      newPasswordError = 'Las contraseñas no coinciden'; return;
+    }
+
+    isChangingPassword = true;
+    try {
+      const res = await fetch('/api/auth/cambiar-clave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ password_nueva: nueva_clave })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        currentUser = { ...currentUser, requiere_cambio_clave: false };
+        showNotification('Contraseña actualizada con éxito');
+        newPasswordForm = { nueva_clave: '', confirmar_clave: '' };
+      } else {
+        newPasswordError = data.message || 'Error al actualizar contraseña';
+      }
+    } catch {
+      newPasswordError = 'Error de conexión';
+    }
+    isChangingPassword = false;
   }
 
   // ── Planificador ────────────────────────────────────────────────────────────
@@ -1185,6 +1224,39 @@
   <div class="toast toast-{notification.type}"><span>{notification.message}</span></div>
 {/if}
 
+{#if currentUser?.requiere_cambio_clave}
+  <!-- MODAL FORCED CHANGE PASSWORD -->
+  <div class="modal-overlay" style="z-index:9999;">
+    <div class="modal-content animate-fade-in" style="max-width:440px;">
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="font-size:2.5rem;margin-bottom:8px;">🔒</div>
+        <h3 style="font-weight:800;font-size:1.3rem;color:var(--primary);">Actualización Obligatoria de Contraseña</h3>
+        <p style="color:var(--gray-600);font-size:0.85rem;margin-top:6px;">
+          Hola, <strong>{currentUser.nombre}</strong>. Por motivos de seguridad, debes ingresar una nueva contraseña personal antes de continuar.
+        </p>
+      </div>
+
+      {#if newPasswordError}
+        <div style="background:var(--danger-light);color:var(--danger);padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:16px;font-size:0.85rem;">{newPasswordError}</div>
+      {/if}
+
+      <form on:submit|preventDefault={submitCambioClave}>
+        <div class="form-group">
+          <label class="form-label" for="new-pass">Nueva Contraseña (mínimo 6 caracteres) *</label>
+          <input type="password" id="new-pass" class="form-control" bind:value={newPasswordForm.nueva_clave} required placeholder="••••••••" minlength="6" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="confirm-pass">Confirmar Nueva Contraseña *</label>
+          <input type="password" id="confirm-pass" class="form-control" bind:value={newPasswordForm.confirmar_clave} required placeholder="••••••••" minlength="6" />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:16px;padding:12px;" disabled={isChangingPassword}>
+          {isChangingPassword ? 'Guardando...' : '✓ Guardar Nueva Contraseña'}
+        </button>
+      </form>
+    </div>
+  </div>
+{/if}
+
 {#if !token}
   <!-- LOGIN SCREEN -->
   <div class="login-screen">
@@ -1951,16 +2023,21 @@
             </div>
             <div class="custom-table-container">
               <table class="custom-table">
-                <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th style="text-align:right;">Acciones</th></tr></thead>
+                <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado Clave</th><th style="text-align:right;">Acciones</th></tr></thead>
                 <tbody>
                   {#if usuariosList.length === 0}
-                    <tr><td colspan="4" style="text-align:center;color:var(--gray-600);padding:32px;">Cargando usuarios...</td></tr>
+                    <tr><td colspan="5" style="text-align:center;color:var(--gray-600);padding:32px;">Cargando usuarios...</td></tr>
                   {:else}
                     {#each usuariosList as u}
                     <tr>
                       <td style="font-weight:600;">{u.nombre}</td>
                       <td>{u.email}</td>
                       <td><span class="badge" style="background:#DBEAFE;color:#1E40AF;">{u.role}</span></td>
+                      <td>
+                        <span class="badge" style="background:{u.requiere_cambio_clave ? '#FEF3C7' : '#D1FAE5'};color:{u.requiere_cambio_clave ? '#D97706' : '#065F46'};">
+                          {u.requiere_cambio_clave ? 'Pendiente 🔒' : 'Activo ✓'}
+                        </span>
+                      </td>
                       <td style="text-align:right;">
                         {#if u.id !== currentUser?.id}
                           <button class="btn btn-danger" style="padding:5px 12px;font-size:0.8rem;" on:click={() => deleteUser(u)}>
