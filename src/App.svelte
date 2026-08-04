@@ -209,6 +209,12 @@
     } catch {}
   }
 
+  $: if (view === 'maestros' && token) {
+    fetchUsuarios();
+    fetchUnidadesMedida();
+    fetchResponsablesDespacho();
+  }
+
   onMount(async () => {
     if (token) {
       await loadMe();
@@ -216,7 +222,7 @@
       await fetchViajes();
       await fetchUnidadesMedida();
       await fetchResponsablesDespacho();
-      if (currentUser?.role === 'Administrador') await fetchUsuarios();
+      await fetchUsuarios();
     }
   });
 
@@ -1938,13 +1944,19 @@
           {#if maestroView === 'usuarios'}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
               <h3 style="font-weight:700;font-size:1.1rem;">Usuarios del Sistema</h3>
-              <button class="btn btn-primary" on:click={() => { userForm = { email:'', password:'', nombre:'', role:'Planificador' }; userError=''; showUserModal=true; }}>+ Crear Usuario</button>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-ghost" style="padding:6px 12px;font-size:0.85rem;" on:click={fetchUsuarios}>🔄 Actualizar</button>
+                <button class="btn btn-primary" on:click={() => { userForm = { email:'', password:'', nombre:'', role:'Planificador' }; userError=''; showUserModal=true; }}>+ Crear Usuario</button>
+              </div>
             </div>
             <div class="custom-table-container">
               <table class="custom-table">
                 <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th style="text-align:right;">Acciones</th></tr></thead>
                 <tbody>
-                  {#each usuariosList as u}
+                  {#if usuariosList.length === 0}
+                    <tr><td colspan="4" style="text-align:center;color:var(--gray-600);padding:32px;">Cargando usuarios...</td></tr>
+                  {:else}
+                    {#each usuariosList as u}
                     <tr>
                       <td style="font-weight:600;">{u.nombre}</td>
                       <td>{u.email}</td>
@@ -1960,6 +1972,7 @@
                       </td>
                     </tr>
                   {/each}
+                {/if}
                 </tbody>
               </table>
             </div>
