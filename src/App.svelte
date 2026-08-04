@@ -124,8 +124,33 @@
 
   function formatDateReadable(dateStr) {
     if (!dateStr) return '-';
-    const d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T12:00:00'));
-    return d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const clean = String(dateStr).split('T')[0].split(' ')[0].trim();
+    const match = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      return `${match[3]}/${match[2]}/${match[1]}`;
+    }
+    const matchDMY = clean.match(/^(\d{1,2})[\/\.](\d{1,2})[\/\.](\d{4})$/);
+    if (matchDMY) {
+      return `${matchDMY[1].padStart(2, '0')}/${matchDMY[2].padStart(2, '0')}/${matchDMY[3]}`;
+    }
+    return dateStr;
+  }
+
+  function formatTimeReadable(datetimeStr) {
+    if (!datetimeStr) return '-';
+    const timePart = String(datetimeStr).replace(' ', 'T').split('T')[1];
+    if (timePart) {
+      const parts = timePart.split(':');
+      return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+    }
+    return datetimeStr;
+  }
+
+  function formatDateTimeReadable(datetimeStr) {
+    if (!datetimeStr) return '-';
+    const dateStr = formatDateReadable(datetimeStr);
+    const timeStr = formatTimeReadable(datetimeStr);
+    return `${dateStr} ${timeStr}`;
   }
 
   function changeWeek(offset) {
@@ -143,14 +168,23 @@
     d.setUTCDate(d.getUTCDate() + 4 - dayNum);
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-    return `Semana ${weekNo} (${start.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' })} al ${end.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' })})`;
+    const sStr = `${String(start.getDate()).padStart(2, '0')}/${String(start.getMonth() + 1).padStart(2, '0')}`;
+    const eStr = `${String(end.getDate()).padStart(2, '0')}/${String(end.getMonth() + 1).padStart(2, '0')}`;
+    return `Semana ${weekNo} (${sStr} al ${eStr})`;
   }
 
   function getVoyagesForDay(dayIndex, voyagesList, weekStart) {
     const d = new Date(weekStart);
     d.setDate(d.getDate() + dayIndex);
-    const dateStr = d.toISOString().split('T')[0];
-    return voyagesList.filter(v => v.fecha_hora_despacho.split('T')[0] === dateStr);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const targetDate = `${yyyy}-${mm}-${dd}`;
+    return voyagesList.filter(v => {
+      if (!v.fecha_hora_despacho) return false;
+      const vDate = String(v.fecha_hora_despacho).split('T')[0].split(' ')[0];
+      return vDate === targetDate;
+    });
   }
 
   // Parse variedades string to array
@@ -978,7 +1012,7 @@
     const emptyCount = Math.max(0, 7 - detalles.length);
     const emptyRows = Array(emptyCount).fill('<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>').join('');
 
-    const fechaDespacho = new Date(valeViaje.fecha_hora_despacho).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const fechaDespacho = formatDateReadable(valeViaje.fecha_hora_despacho);
     const numeroVale = 'N° ' + String(valeViaje.id).padStart(8, '0');
 
     const html = `<!DOCTYPE html>
@@ -1491,7 +1525,7 @@
                         <div style="margin-top:4px;font-weight:600;font-size:0.8rem;">{voyage.cultivo}</div>
                         <div style="font-size:0.75rem;color:var(--gray-600);">{parseVariedades(voyage.variedades).join(', ')}</div>
                         <div style="font-size:0.75rem;color:var(--gray-600);">Cli: {voyage.cliente?.razon_social || 'Desconocido'}</div>
-                        <div style="font-size:0.75rem;color:var(--gray-600);">Hora: {new Date(voyage.fecha_hora_despacho).toLocaleTimeString('es-PE', {hour:'2-digit',minute:'2-digit'})}</div>
+                        <div style="font-size:0.75rem;color:var(--gray-600);">Hora: {formatTimeReadable(voyage.fecha_hora_despacho)}</div>
                       </div>
                     {/each}
                   {/if}
@@ -1537,7 +1571,7 @@
                   {#each viajes as viaje}
                     <tr>
                       <td style="font-weight:700;color:var(--primary);">{viaje.codigo_viaje}</td>
-                      <td>{new Date(viaje.fecha_hora_despacho).toLocaleString('es-PE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+                      <td>{formatDateTimeReadable(viaje.fecha_hora_despacho)}</td>
                       <td><strong>{viaje.cultivo}</strong></td>
                       <td>
                         <div class="variedad-chips">
@@ -2113,7 +2147,7 @@
                         </div>
                       </td>
                       <td>{viaje.cliente?.razon_social}</td>
-                      <td>{new Date(viaje.fecha_hora_despacho).toLocaleDateString('es-PE', {day:'2-digit',month:'2-digit',year:'numeric'})}</td>
+                      <td>{formatDateReadable(viaje.fecha_hora_despacho)}</td>
                       <td>{viaje.guia_remision || '-'}</td>
                       <td>{viaje.conductor_nombre || '-'}</td>
                       <td>

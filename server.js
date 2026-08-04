@@ -7,6 +7,10 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
 import path from 'path';
+
+// Evitar desfasaje de zona horaria (UTC vs PET -5) al consultar DATE y TIMESTAMP de Postgres
+pg.types.setTypeParser(1082, str => str);
+pg.types.setTypeParser(1114, str => str);
 import { fileURLToPath } from 'url';
 
 dotenv.config();
