@@ -7,6 +7,8 @@ DROP TABLE IF EXISTS pallets;
 DROP TABLE IF EXISTS viajes;
 DROP TABLE IF EXISTS responsables_despacho;
 DROP TABLE IF EXISTS unidades_medida;
+DROP TABLE IF EXISTS variedades;
+DROP TABLE IF EXISTS cultivos;
 DROP TABLE IF EXISTS clientes;
 DROP TABLE IF EXISTS usuarios;
 
@@ -46,6 +48,24 @@ CREATE TABLE responsables_despacho (
     dni VARCHAR(8) NOT NULL,
     activo BOOLEAN DEFAULT TRUE,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. Cultivos (Tabla Maestra)
+CREATE TABLE cultivos (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(50) UNIQUE NOT NULL,
+    activo BOOLEAN DEFAULT TRUE,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 6. Variedades (Tabla Maestra relacionada a Cultivos)
+CREATE TABLE variedades (
+    id SERIAL PRIMARY KEY,
+    cultivo_id INT NOT NULL REFERENCES cultivos(id) ON DELETE CASCADE,
+    nombre VARCHAR(50) NOT NULL,
+    activo BOOLEAN DEFAULT TRUE,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_cultivo_variedad UNIQUE (cultivo_id, nombre)
 );
 
 -- 5. Viajes
@@ -125,6 +145,22 @@ INSERT INTO responsables_despacho (nombre, dni) VALUES
 ('Samuel Pacheco', '45231876'),
 ('María González', '38291043'),
 ('Carlos Rodríguez', '52109834');
+
+-- Cultivos y Variedades iniciales
+INSERT INTO cultivos (nombre) VALUES ('Arándano'), ('Palta'), ('Uva'), ('Mango');
+
+INSERT INTO variedades (cultivo_id, nombre) VALUES
+((SELECT id FROM cultivos WHERE nombre = 'Arándano'), 'Biloxi'),
+((SELECT id FROM cultivos WHERE nombre = 'Arándano'), 'Ventura'),
+((SELECT id FROM cultivos WHERE nombre = 'Arándano'), 'Emerald'),
+((SELECT id FROM cultivos WHERE nombre = 'Arándano'), 'Springhigh'),
+((SELECT id FROM cultivos WHERE nombre = 'Palta'), 'Hass'),
+((SELECT id FROM cultivos WHERE nombre = 'Palta'), 'Fuerte'),
+((SELECT id FROM cultivos WHERE nombre = 'Uva'), 'Red Globe'),
+((SELECT id FROM cultivos WHERE nombre = 'Uva'), 'Autumn Crisp'),
+((SELECT id FROM cultivos WHERE nombre = 'Uva'), 'Sweet Globe'),
+((SELECT id FROM cultivos WHERE nombre = 'Mango'), 'Kent'),
+((SELECT id FROM cultivos WHERE nombre = 'Mango'), 'Edward');
 
 -- Usuario Administrador Inicial
 INSERT INTO usuarios (email, password_hash, nombre, role, requiere_cambio_clave) VALUES

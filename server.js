@@ -75,6 +75,25 @@ const mockData = {
     { id: 2, nombre: 'María González', dni: '38291043', activo: true, creado_en: new Date().toISOString() },
     { id: 3, nombre: 'Carlos Rodríguez', dni: '52109834', activo: true, creado_en: new Date().toISOString() }
   ],
+  cultivos: [
+    { id: 1, nombre: 'Arándano', activo: true },
+    { id: 2, nombre: 'Palta', activo: true },
+    { id: 3, nombre: 'Uva', activo: true },
+    { id: 4, nombre: 'Mango', activo: true }
+  ],
+  variedades: [
+    { id: 1, cultivo_id: 1, nombre: 'Biloxi', activo: true },
+    { id: 2, cultivo_id: 1, nombre: 'Ventura', activo: true },
+    { id: 3, cultivo_id: 1, nombre: 'Emerald', activo: true },
+    { id: 4, cultivo_id: 1, nombre: 'Springhigh', activo: true },
+    { id: 5, cultivo_id: 2, nombre: 'Hass', activo: true },
+    { id: 6, cultivo_id: 2, nombre: 'Fuerte', activo: true },
+    { id: 7, cultivo_id: 3, nombre: 'Red Globe', activo: true },
+    { id: 8, cultivo_id: 3, nombre: 'Autumn Crisp', activo: true },
+    { id: 9, cultivo_id: 3, nombre: 'Sweet Globe', activo: true },
+    { id: 10, cultivo_id: 4, nombre: 'Kent', activo: true },
+    { id: 11, cultivo_id: 4, nombre: 'Edward', activo: true }
+  ],
   viajes: [],
   pallets: []
 };
@@ -383,6 +402,132 @@ app.post('/api/clientes', authenticateToken, checkRole(['Planificador', 'Adminis
       console.error('[ERROR POST /api/clientes]', err);
       res.status(500).json({ message: 'Error interno del servidor' });
     }
+  }
+});
+
+// ── CULTIVOS Y VARIEDADES ───────────────────────────────────────────────────
+
+app.get('/api/cultivos', authenticateToken, async (req, res) => {
+  try {
+    if (useMock) {
+      const result = mockData.cultivos.map(c => ({
+        ...c,
+        variedades: mockData.variedades.filter(v => v.cultivo_id === c.id)
+      }));
+      res.json(result);
+    } else {
+      const cultivosRes = await pool.query('SELECT * FROM cultivos ORDER BY nombre ASC');
+      const variedadesRes = await pool.query('SELECT * FROM variedades ORDER BY nombre ASC');
+      const cultivos = cultivosRes.rows.map(c => ({
+        ...c,
+        variedades: variedadesRes.rows.filter(v => v.cultivo_id === c.id)
+      }));
+      res.json(cultivos);
+    }
+  } catch (err) {
+    console.error('[ERROR GET /api/cultivos]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.post('/api/cultivos', authenticateToken, checkRole(['Administrador']), async (req, res) => {
+  const { nombre } = req.body;
+  const trimNombre = (nombre || '').trim();
+  if (!trimNombre) return res.status(400).json({ message: 'El nombre del cultivo es obligatorio' });
+
+  try {
+    if (useMock) {
+      if (mockData.cultivos.some(c => c.nombre.toLowerCase() === trimNombre.toLowerCase())) {
+        return res.status(400).json({ message: 'El cultivo ya existe' });
+      }
+      const newC = { id: mockData.cultivos.length + 1, nombre: trimNombre, activo: true, variedades: [] };
+      mockData.cultivos.push(newC);
+      res.status(201).json(newC);
+    } else {
+      const result = await pool.query('INSERT INTO cultivos (nombre) VALUES ($1) RETURNING *', [trimNombre]);
+      res.status(201).json({ ...result.rows[0], variedades: [] });
+    }
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ message: 'El cultivo ya existe' });
+    console.error('[ERROR POST /api/cultivos]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.put('/api/cultivos/:id', authenticateToken, checkRole(['Administrador']), async (req, res) => {
+  const { id } = req.params;
+  const { nombre, activo } = req.body;
+  try {
+    if (useMock) {
+      const c = mockData.cultivos.find(x => x.id === parseInt(id));
+      if (!c) return res.status(404).json({ message: 'Cultivo no encontrado' });
+      if (nombre) c.nombre = nombre.trim();
+      if (typeof activo === 'boolean') c.activo = activo;
+      res.json(c);
+    } else {
+      const result = await pool.query(
+        'UPDATE cultivos SET nombre = COALESCE($1, nombre), activo = COALESCE($2, activo) WHERE id = $3 RETURNING *',
+        [nombre?.trim() || null, typeof activo === 'boolean' ? activo : null, id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ message: 'Cultivo no encontrado' });
+      res.json(result.rows[0]);
+    }
+  } catch (err) {
+    console.error('[ERROR PUT /api/cultivos/:id]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.post('/api/cultivos/:id/variedades', authenticateToken, checkRole(['Administrador']), async (req, res) => {
+  const { id } = req.params;
+  const { nombre } = req.body;
+  const trimNombre = (nombre || '').trim();
+  if (!trimNombre) return res.status(400).json({ message: 'El nombre de la variedad es obligatorio' });
+
+  try {
+    if (useMock) {
+      const cId = parseInt(id);
+      if (mockData.variedades.some(v => v.cultivo_id === cId && v.nombre.toLowerCase() === trimNombre.toLowerCase())) {
+        return res.status(400).json({ message: 'La variedad ya existe para este cultivo' });
+      }
+      const newV = { id: mockData.variedades.length + 1, cultivo_id: cId, nombre: trimNombre, activo: true };
+      mockData.variedades.push(newV);
+      res.status(201).json(newV);
+    } else {
+      const result = await pool.query(
+        'INSERT INTO variedades (cultivo_id, nombre) VALUES ($1, $2) RETURNING *',
+        [id, trimNombre]
+      );
+      res.status(201).json(result.rows[0]);
+    }
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ message: 'La variedad ya existe para este cultivo' });
+    console.error('[ERROR POST /api/cultivos/:id/variedades]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.put('/api/variedades/:id', authenticateToken, checkRole(['Administrador']), async (req, res) => {
+  const { id } = req.params;
+  const { nombre, activo } = req.body;
+  try {
+    if (useMock) {
+      const v = mockData.variedades.find(x => x.id === parseInt(id));
+      if (!v) return res.status(404).json({ message: 'Variedad no encontrada' });
+      if (nombre) v.nombre = nombre.trim();
+      if (typeof activo === 'boolean') v.activo = activo;
+      res.json(v);
+    } else {
+      const result = await pool.query(
+        'UPDATE variedades SET nombre = COALESCE($1, nombre), activo = COALESCE($2, activo) WHERE id = $3 RETURNING *',
+        [nombre?.trim() || null, typeof activo === 'boolean' ? activo : null, id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ message: 'Variedad no encontrada' });
+      res.json(result.rows[0]);
+    }
+  } catch (err) {
+    console.error('[ERROR PUT /api/variedades/:id]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
   }
 });
 

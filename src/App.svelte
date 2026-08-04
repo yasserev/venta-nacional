@@ -13,12 +13,13 @@
   let authError = '';
 
   // Master Data
-  const cultivosData = {
-    'Arándano': ['Biloxi', 'Ventura', 'Emerald', 'Springhigh'],
-    'Palta': ['Hass', 'Fuerte'],
-    'Uva': ['Red Globe', 'Autumn Crisp', 'Sweet Globe'],
-    'Mango': ['Kent', 'Edward']
-  };
+  let cultivosList = [];
+  $: cultivosData = (cultivosList || []).reduce((acc, c) => {
+    if (c.activo) {
+      acc[c.nombre] = (c.variedades || []).filter(v => v.activo).map(v => v.nombre);
+    }
+    return acc;
+  }, {});
   const orígenesFruta = ['Fresco', 'Congelado', 'Proceso industrial'];
   const orígenesDespacho = ['Planta Chao', 'Planta Virú', 'Fundo Gloria', 'Fundo San José'];
 
@@ -91,6 +92,13 @@
   let showRespModal = false;
   let respForm = { nombre: '', dni: '' };
   let respError = '';
+  let showCultivoModal = false;
+  let cultivoForm = { nombre: '' };
+  let cultivoError = '';
+  let showVariedadModal = false;
+  let selectedCultivoForVar = null;
+  let variedadForm = { nombre: '' };
+  let variedadError = '';
 
   // ── Forced Password Change State ─────────────────────────────────────────────
   let newPasswordForm = { nueva_clave: '', confirmar_clave: '' };
@@ -215,10 +223,100 @@
     } catch {}
   }
 
+  async function fetchCultivos() {
+    try {
+      const res = await fetch('/api/cultivos', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) cultivosList = await res.json();
+    } catch {}
+  }
+
+  async function submitCultivo() {
+    cultivoError = '';
+    if (!cultivoForm.nombre.trim()) {
+      cultivoError = 'El nombre del cultivo es obligatorio'; return;
+    }
+    try {
+      const res = await fetch('/api/cultivos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(cultivoForm)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showCultivoModal = false;
+        cultivoForm = { nombre: '' };
+        await fetchCultivos();
+        showNotification('Cultivo agregado exitosamente');
+      } else {
+        cultivoError = data.message || 'Error al agregar cultivo';
+      }
+    } catch {
+      cultivoError = 'Error de conexión';
+    }
+  }
+
+  async function toggleCultivo(c) {
+    try {
+      const res = await fetch(`/api/cultivos/${c.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ activo: !c.activo })
+      });
+      if (res.ok) {
+        await fetchCultivos();
+        showNotification(`Cultivo ${!c.activo ? 'activado' : 'desactivado'}`);
+      }
+    } catch {
+      showNotification('Error al actualizar cultivo', 'danger');
+    }
+  }
+
+  async function submitVariedad() {
+    variedadError = '';
+    if (!variedadForm.nombre.trim() || !selectedCultivoForVar) {
+      variedadError = 'El nombre de la variedad es obligatorio'; return;
+    }
+    try {
+      const res = await fetch(`/api/cultivos/${selectedCultivoForVar.id}/variedades`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(variedadForm)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showVariedadModal = false;
+        variedadForm = { nombre: '' };
+        await fetchCultivos();
+        showNotification('Variedad agregada exitosamente');
+      } else {
+        variedadError = data.message || 'Error al agregar variedad';
+      }
+    } catch {
+      variedadError = 'Error de conexión';
+    }
+  }
+
+  async function toggleVariedad(v) {
+    try {
+      const res = await fetch(`/api/variedades/${v.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ activo: !v.activo })
+      });
+      if (res.ok) {
+        await fetchCultivos();
+        showNotification(`Variedad ${!v.activo ? 'activada' : 'desactivada'}`);
+      }
+    } catch {
+      showNotification('Error al actualizar variedad', 'danger');
+    }
+  }
+
   $: if (view === 'maestros' && token) {
     fetchUsuarios();
     fetchUnidadesMedida();
     fetchResponsablesDespacho();
+    fetchCultivos();
   }
 
   onMount(async () => {
@@ -229,6 +327,7 @@
       await fetchUnidadesMedida();
       await fetchResponsablesDespacho();
       await fetchUsuarios();
+      await fetchCultivos();
     }
   });
 
@@ -250,6 +349,7 @@
         await fetchViajes();
         await fetchUnidadesMedida();
         await fetchResponsablesDespacho();
+        await fetchCultivos();
         if (currentUser?.role === 'Administrador') await fetchUsuarios();
         showNotification(`Bienvenido, ${currentUser.nombre}`);
       } else {
@@ -2034,12 +2134,68 @@
         <div class="card animate-fade-in">
           <h2 style="font-weight:800;font-size:1.5rem;color:var(--primary);margin-bottom:20px;">Tablas Maestras</h2>
           <div style="display:flex;gap:8px;margin-bottom:24px;">
+            <button class="variedad-tab-btn {maestroView === 'cultivos' ? 'active' : ''}" on:click={() => maestroView = 'cultivos'}>Cultivos y Variedades</button>
             <button class="variedad-tab-btn {maestroView === 'usuarios' ? 'active' : ''}" on:click={() => maestroView = 'usuarios'}>Usuarios del Sistema</button>
             <button class="variedad-tab-btn {maestroView === 'unidades' ? 'active' : ''}" on:click={() => maestroView = 'unidades'}>Unidades de Medida</button>
             <button class="variedad-tab-btn {maestroView === 'responsables' ? 'active' : ''}" on:click={() => maestroView = 'responsables'}>Responsables de Despacho</button>
           </div>
 
-          {#if maestroView === 'usuarios'}
+          {#if maestroView === 'cultivos'}
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h3 style="font-weight:700;font-size:1.1rem;">Gestión de Cultivos y Variedades</h3>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-ghost" style="padding:6px 12px;font-size:0.85rem;" on:click={fetchCultivos}>🔄 Actualizar</button>
+                <button class="btn btn-primary" on:click={() => { cultivoForm = { nombre:'' }; cultivoError=''; showCultivoModal=true; }}>+ Crear Cultivo</button>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:20px;margin-top:16px;">
+              {#each cultivosList as c}
+                <div class="card" style="margin:0;background:var(--light);border:1px solid var(--gray-200);padding:20px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <h4 style="font-weight:700;font-size:1.1rem;color:var(--primary);">{c.nombre}</h4>
+                      <span class="badge" style="background:{c.activo ? '#D1FAE5' : '#FEE2E2'};color:{c.activo ? '#065F46' : '#991B1B'};">
+                        {c.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </div>
+                    <button class="btn btn-ghost" style="padding:4px 8px;font-size:0.75rem;" on:click={() => toggleCultivo(c)}>
+                      {c.activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                  </div>
+
+                  <div style="margin-bottom:12px;">
+                    <span style="font-size:0.8rem;font-weight:600;color:var(--gray-600);">Variedades ({c.variedades?.length || 0}):</span>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+                      {#if !c.variedades || c.variedades.length === 0}
+                        <span style="font-size:0.8rem;color:var(--gray-600);font-style:italic;">Sin variedades asociadas</span>
+                      {:else}
+                        {#each c.variedades as v}
+                          <span
+                            class="variedad-chip"
+                            style="background:{v.activo ? '#DBEAFE' : '#F3F4F6'};color:{v.activo ? '#1E40AF' : '#9CA3AF'};cursor:pointer;"
+                            on:click={() => toggleVariedad(v)}
+                            title="Haz clic para activar/desactivar"
+                          >
+                            {v.nombre} {v.activo ? '✓' : '✕'}
+                          </span>
+                        {/each}
+                      {/if}
+                    </div>
+                  </div>
+
+                  <button
+                    class="btn btn-ghost"
+                    style="width:100%;font-size:0.8rem;padding:6px;margin-top:8px;border:1px dashed var(--gray-300);"
+                    on:click={() => { selectedCultivoForVar = c; variedadForm = { nombre: '' }; variedadError = ''; showVariedadModal = true; }}
+                  >
+                    + Agregar Variedad
+                  </button>
+                </div>
+              {/each}
+            </div>
+
+          {:else if maestroView === 'usuarios'}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
               <h3 style="font-weight:700;font-size:1.1rem;">Usuarios del Sistema</h3>
               <div style="display:flex;gap:8px;">
@@ -2346,6 +2502,56 @@
         <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;">
           <button type="button" class="btn btn-ghost" on:click={() => showUserModal=false}>Cancelar</button>
           <button type="submit" class="btn btn-primary">Crear Usuario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
+<!-- ══ MODAL: Nuevo Cultivo ═════════════════════════════════════════════════ -->
+{#if showCultivoModal}
+  <div class="modal-overlay" style="z-index:1050;">
+    <div class="modal-content animate-fade-in" style="max-width:400px;">
+      <div class="modal-header">
+        <h3 style="font-weight:800;font-size:1.2rem;color:var(--primary);">Nuevo Cultivo</h3>
+        <button class="btn btn-ghost" on:click={() => showCultivoModal=false} style="padding:4px 8px;font-size:0.8rem;">✕</button>
+      </div>
+      {#if cultivoError}
+        <div style="background:var(--danger-light);color:var(--danger);padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:16px;font-size:0.85rem;">{cultivoError}</div>
+      {/if}
+      <form on:submit|preventDefault={submitCultivo}>
+        <div class="form-group">
+          <label class="form-label" for="cultivo-nombre">Nombre del Cultivo *</label>
+          <input type="text" id="cultivo-nombre" class="form-control" bind:value={cultivoForm.nombre} required placeholder="ej. Cítricos" />
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;">
+          <button type="button" class="btn btn-ghost" on:click={() => showCultivoModal=false}>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Crear Cultivo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
+<!-- ══ MODAL: Nueva Variedad ════════════════════════════════════════════════ -->
+{#if showVariedadModal}
+  <div class="modal-overlay" style="z-index:1050;">
+    <div class="modal-content animate-fade-in" style="max-width:400px;">
+      <div class="modal-header">
+        <h3 style="font-weight:800;font-size:1.2rem;color:var(--primary);">Nueva Variedad para {selectedCultivoForVar?.nombre}</h3>
+        <button class="btn btn-ghost" on:click={() => showVariedadModal=false} style="padding:4px 8px;font-size:0.8rem;">✕</button>
+      </div>
+      {#if variedadError}
+        <div style="background:var(--danger-light);color:var(--danger);padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:16px;font-size:0.85rem;">{variedadError}</div>
+      {/if}
+      <form on:submit|preventDefault={submitVariedad}>
+        <div class="form-group">
+          <label class="form-label" for="variedad-nombre">Nombre de la Variedad *</label>
+          <input type="text" id="variedad-nombre" class="form-control" bind:value={variedadForm.nombre} required placeholder="ej. W. Murcott" />
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;">
+          <button type="button" class="btn btn-ghost" on:click={() => showVariedadModal=false}>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Crear Variedad</button>
         </div>
       </form>
     </div>
