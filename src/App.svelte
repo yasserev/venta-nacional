@@ -1278,7 +1278,11 @@
         <div class="form-group">
           <label class="form-label" for="password">Contraseña</label>
           <div style="position:relative;display:flex;align-items:center;">
-            <input type={showPassword ? 'text' : 'password'} id="password" class="form-control" bind:value={password} required placeholder="••••••••" style="padding-right:42px;" />
+            {#if showPassword}
+              <input type="text" id="password" class="form-control" bind:value={password} required placeholder="••••••••" style="padding-right:42px;" />
+            {:else}
+              <input type="password" id="password" class="form-control" bind:value={password} required placeholder="••••••••" style="padding-right:42px;" />
+            {/if}
             <button
               type="button"
               on:click={() => showPassword = !showPassword}
