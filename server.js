@@ -57,10 +57,7 @@ let useMock = false;
 
 const mockData = {
   usuarios: [
-    { id: 1, email: 'planificador@camposol.com', password_hash: bcrypt.hashSync('camposol123', 10), nombre: 'Planificador Venta Nacional', role: 'Planificador' },
-    { id: 2, email: 'frio@camposol.com', password_hash: bcrypt.hashSync('camposol123', 10), nombre: 'Responsable Cadena Frio', role: 'Cadena de frío' },
-    { id: 3, email: 'despacho@camposol.com', password_hash: bcrypt.hashSync('camposol123', 10), nombre: 'Responsable Despacho', role: 'Despacho' },
-    { id: 4, email: 'admin@camposol.com', password_hash: bcrypt.hashSync('camposol123', 10), nombre: 'Administrador Camposol', role: 'Administrador' }
+    { id: 1, email: 'yespinoza@camposol.com', password_hash: bcrypt.hashSync('camposol123', 10), nombre: 'Yasser Espinoza', role: 'Administrador' }
   ],
   clientes: [
     { id: 1, razon_social: 'Supermercados Peruanos S.A.', ruc: '20100018612', direccion: 'Av. Larco 1230, Miraflores, Lima' },
@@ -160,6 +157,133 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
 app.get('/api/auth/me', authenticateToken, (req, res) => {
   res.json({ user: req.user });
+});
+
+// ── USUARIOS ─────────────────────────────────────────────────────────────────
+
+app.get('/api/usuarios', authenticateToken, checkRole(['Administrador']), async (req, res) => {
+  try {
+    if (useMock) {
+      const list = mockData.usuarios.map(({ password_hash, ...u }) => u);
+      res.json(list);
+    } else {
+      const result = await pool.query('SELECT id, email, nombre, role, creado_en FROM usuarios ORDER BY nombre ASC');
+      res.json(result.rows);
+    }
+  } catch (err) {
+    console.error('[ERROR GET /api/usuarios]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.post('/api/usuarios', authenticateToken, checkRole(['Administrador']), async (req, res) => {
+  const { email, password, nombre, role } = req.body;
+  const trimEmail = (email || '').trim().toLowerCase();
+  const trimNombre = (nombre || '').trim();
+  const validRoles = ['Planificador', 'Cadena de frío', 'Despacho', 'Administrador'];
+
+  if (!trimEmail || !password || !trimNombre || !role) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios' });
+  }
+  if (!validRoles.includes(role)) {
+    return res.status(400).json({ message: 'Rol no válido' });
+  }
+
+  const hash = bcrypt.hashSync(password, 10);
+
+  try {
+    if (useMock) {
+      if (mockData.usuarios.some(u => u.email === trimEmail)) {
+        return res.status(400).json({ message: 'El correo electrónico ya está registrado' });
+      }
+      const newU = { id: mockData.usuarios.length + 1, email: trimEmail, password_hash: hash, nombre: trimNombre, role, creado_en: new Date().toISOString() };
+      mockData.usuarios.push(newU);
+      const { password_hash, ...safeUser } = newU;
+      res.status(201).json(safeUser);
+    } else {
+      const result = await pool.query(
+        'INSERT INTO usuarios (email, password_hash, nombre, role) VALUES ($1, $2, $3, $4) RETURNING id, email, nombre, role, creado_en',
+        [trimEmail, hash, trimNombre, role]
+      );
+      res.status(201).json(result.rows[0]);
+    }
+  } catch (err) {
+    if (err.code === '23505') {
+      res.status(400).json({ message: 'El correo electrónico ya está registrado' });
+    } else {
+      console.error('[ERROR POST /api/usuarios]', err);
+      res.status(500).json({ message: 'Error interno del servidor' });
+    }
+  }
+});
+
+app.put('/api/usuarios/:id', authenticateToken, checkRole(['Administrador']), async (req, res) => {
+  const { id } = req.params;
+  const { email, password, nombre, role } = req.body;
+  const trimEmail = (email || '').trim().toLowerCase();
+  const trimNombre = (nombre || '').trim();
+  const validRoles = ['Planificador', 'Cadena de frío', 'Despacho', 'Administrador'];
+
+  if (!trimEmail || !trimNombre || !role) {
+    return res.status(400).json({ message: 'Email, nombre y rol son obligatorios' });
+  }
+  if (!validRoles.includes(role)) {
+    return res.status(400).json({ message: 'Rol no válido' });
+  }
+
+  try {
+    if (useMock) {
+      const idx = mockData.usuarios.findIndex(u => u.id === parseInt(id));
+      if (idx === -1) return res.status(404).json({ message: 'Usuario no encontrado' });
+      
+      mockData.usuarios[idx].email = trimEmail;
+      mockData.usuarios[idx].nombre = trimNombre;
+      mockData.usuarios[idx].role = role;
+      if (password) {
+        mockData.usuarios[idx].password_hash = bcrypt.hashSync(password, 10);
+      }
+      const { password_hash, ...safeUser } = mockData.usuarios[idx];
+      res.json(safeUser);
+    } else {
+      let query = 'UPDATE usuarios SET email=$1, nombre=$2, role=$3 WHERE id=$4 RETURNING id, email, nombre, role, creado_en';
+      let params = [trimEmail, trimNombre, role, id];
+
+      if (password) {
+        const hash = bcrypt.hashSync(password, 10);
+        query = 'UPDATE usuarios SET email=$1, nombre=$2, role=$3, password_hash=$5 WHERE id=$4 RETURNING id, email, nombre, role, creado_en';
+        params = [trimEmail, trimNombre, role, id, hash];
+      }
+
+      const result = await pool.query(query, params);
+      if (result.rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+      res.json(result.rows[0]);
+    }
+  } catch (err) {
+    console.error('[ERROR PUT /api/usuarios/:id]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.delete('/api/usuarios/:id', authenticateToken, checkRole(['Administrador']), async (req, res) => {
+  const { id } = req.params;
+  if (parseInt(id) === req.user.id) {
+    return res.status(400).json({ message: 'No puedes eliminar tu propia cuenta' });
+  }
+  try {
+    if (useMock) {
+      const idx = mockData.usuarios.findIndex(u => u.id === parseInt(id));
+      if (idx === -1) return res.status(404).json({ message: 'Usuario no encontrado' });
+      mockData.usuarios.splice(idx, 1);
+      res.json({ message: 'Usuario eliminado exitosamente' });
+    } else {
+      const result = await pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
+      if (result.rowCount === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+      res.json({ message: 'Usuario eliminado exitosamente' });
+    }
+  } catch (err) {
+    console.error('[ERROR DELETE /api/usuarios/:id]', err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
 });
 
 // ── CLIENTES ─────────────────────────────────────────────────────────────────

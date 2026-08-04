@@ -79,7 +79,11 @@
   let despachoSavingPallet = null;
 
   // ── Maestros State (Administrador) ──────────────────────────────────────────
-  let maestroView = 'unidades';
+  let maestroView = 'usuarios';
+  let usuariosList = [];
+  let showUserModal = false;
+  let userForm = { email: '', password: '', nombre: '', role: 'Planificador' };
+  let userError = '';
   let showUMModal = false;
   let umForm = { codigo: '', descripcion: '' };
   let umError = '';
@@ -198,6 +202,13 @@
     } catch {}
   }
 
+  async function fetchUsuarios() {
+    try {
+      const res = await fetch('/api/usuarios', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) usuariosList = await res.json();
+    } catch {}
+  }
+
   onMount(async () => {
     if (token) {
       await loadMe();
@@ -205,6 +216,7 @@
       await fetchViajes();
       await fetchUnidadesMedida();
       await fetchResponsablesDespacho();
+      if (currentUser?.role === 'Administrador') await fetchUsuarios();
     }
   });
 
@@ -226,6 +238,7 @@
         await fetchViajes();
         await fetchUnidadesMedida();
         await fetchResponsablesDespacho();
+        if (currentUser?.role === 'Administrador') await fetchUsuarios();
         showNotification(`Bienvenido, ${currentUser.nombre}`);
       } else {
         authError = data.message || 'Error al iniciar sesión';
@@ -240,6 +253,53 @@
     currentUser = null;
     localStorage.removeItem('token');
     view = 'calendar';
+  }
+
+  async function submitUser() {
+    userError = '';
+    if (!userForm.email.trim() || !userForm.nombre.trim() || !userForm.password.trim() || !userForm.role) {
+      userError = 'Todos los campos son obligatorios'; return;
+    }
+    try {
+      const res = await fetch('/api/usuarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(userForm)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showUserModal = false;
+        userForm = { email: '', password: '', nombre: '', role: 'Planificador' };
+        await fetchUsuarios();
+        showNotification('Usuario creado exitosamente');
+      } else {
+        userError = data.message || 'Error al crear usuario';
+      }
+    } catch {
+      userError = 'Error de conexión';
+    }
+  }
+
+  async function deleteUser(u) {
+    if (u.id === currentUser?.id) {
+      showNotification('No puedes eliminar tu propia cuenta', 'danger'); return;
+    }
+    if (!confirm(`¿Eliminar al usuario ${u.nombre} (${u.email})?`)) return;
+    try {
+      const res = await fetch(`/api/usuarios/${u.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await fetchUsuarios();
+        showNotification('Usuario eliminado');
+      } else {
+        showNotification(data.message || 'Error al eliminar', 'danger');
+      }
+    } catch {
+      showNotification('Error de conexión', 'danger');
+    }
   }
 
   // ── Planificador ────────────────────────────────────────────────────────────
@@ -1143,12 +1203,10 @@
         <button type="submit" class="btn btn-primary" style="width:100%;margin-top:16px;padding:12px;">Iniciar Sesión</button>
       </form>
       <div style="margin-top:24px;border-top:1px solid var(--gray-200);padding-top:16px;font-size:0.75rem;color:var(--gray-600);text-align:center;">
-        <p>Contraseña de prueba: <strong>camposol123</strong></p>
+        <p>Usuario Administrador por defecto:</p>
         <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;text-align:left;background:var(--gray-100);padding:8px;border-radius:4px;">
-          <div>• Planificador: <code>planificador@camposol.com</code></div>
-          <div>• Cadena de Frío: <code>frio@camposol.com</code></div>
-          <div>• Despacho: <code>despacho@camposol.com</code></div>
-          <div>• Admin: <code>admin@camposol.com</code></div>
+          <div>• Email: <code>yespinoza@camposol.com</code></div>
+          <div>• Contraseña: <code>camposol123</code></div>
         </div>
       </div>
     </div>
@@ -1879,11 +1937,41 @@
         <div class="card animate-fade-in">
           <h2 style="font-weight:800;font-size:1.5rem;color:var(--primary);margin-bottom:20px;">Tablas Maestras</h2>
           <div style="display:flex;gap:8px;margin-bottom:24px;">
+            <button class="variedad-tab-btn {maestroView === 'usuarios' ? 'active' : ''}" on:click={() => maestroView = 'usuarios'}>Usuarios del Sistema</button>
             <button class="variedad-tab-btn {maestroView === 'unidades' ? 'active' : ''}" on:click={() => maestroView = 'unidades'}>Unidades de Medida</button>
             <button class="variedad-tab-btn {maestroView === 'responsables' ? 'active' : ''}" on:click={() => maestroView = 'responsables'}>Responsables de Despacho</button>
           </div>
 
-          {#if maestroView === 'unidades'}
+          {#if maestroView === 'usuarios'}
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h3 style="font-weight:700;font-size:1.1rem;">Usuarios del Sistema</h3>
+              <button class="btn btn-primary" on:click={() => { userForm = { email:'', password:'', nombre:'', role:'Planificador' }; userError=''; showUserModal=true; }}>+ Crear Usuario</button>
+            </div>
+            <div class="custom-table-container">
+              <table class="custom-table">
+                <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th style="text-align:right;">Acciones</th></tr></thead>
+                <tbody>
+                  {#each usuariosList as u}
+                    <tr>
+                      <td style="font-weight:600;">{u.nombre}</td>
+                      <td>{u.email}</td>
+                      <td><span class="badge" style="background:#DBEAFE;color:#1E40AF;">{u.role}</span></td>
+                      <td style="text-align:right;">
+                        {#if u.id !== currentUser?.id}
+                          <button class="btn btn-danger" style="padding:5px 12px;font-size:0.8rem;" on:click={() => deleteUser(u)}>
+                            Eliminar
+                          </button>
+                        {:else}
+                          <span style="font-size:0.75rem;color:var(--gray-600);font-style:italic;">Tu cuenta</span>
+                        {/if}
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+
+          {:else if maestroView === 'unidades'}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
               <h3 style="font-weight:700;font-size:1.1rem;">Unidades de Medida</h3>
               <button class="btn btn-primary" on:click={() => { umForm = { codigo:'', descripcion:'' }; umError=''; showUMModal=true; }}>+ Nueva Unidad</button>
@@ -2109,6 +2197,48 @@
         <button class="btn btn-ghost" on:click={() => showRespModal=false}>Cancelar</button>
         <button class="btn btn-primary" on:click={submitResp}>Crear</button>
       </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ══ MODAL: Nuevo Usuario ═════════════════════════════════════════════════ -->
+{#if showUserModal}
+  <div class="modal-overlay" style="z-index:1050;">
+    <div class="modal-content animate-fade-in" style="max-width:440px;">
+      <div class="modal-header">
+        <h3 style="font-weight:800;font-size:1.2rem;color:var(--primary);">Nuevo Usuario del Sistema</h3>
+        <button class="btn btn-ghost" on:click={() => showUserModal=false} style="padding:4px 8px;font-size:0.8rem;">✕</button>
+      </div>
+      {#if userError}
+        <div style="background:var(--danger-light);color:var(--danger);padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:16px;font-size:0.85rem;">{userError}</div>
+      {/if}
+      <form on:submit|preventDefault={submitUser}>
+        <div class="form-group">
+          <label class="form-label" for="usr-nombre">Nombre y Apellidos *</label>
+          <input type="text" id="usr-nombre" class="form-control" bind:value={userForm.nombre} required placeholder="Juan Pérez" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="usr-email">Correo Electrónico *</label>
+          <input type="email" id="usr-email" class="form-control" bind:value={userForm.email} required placeholder="jperez@camposol.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="usr-role">Rol *</label>
+          <select id="usr-role" class="form-control" bind:value={userForm.role} required>
+            <option value="Planificador">Planificador</option>
+            <option value="Cadena de frío">Cadena de frío</option>
+            <option value="Despacho">Despacho</option>
+            <option value="Administrador">Administrador</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="usr-pass">Contraseña *</label>
+          <input type="password" id="usr-pass" class="form-control" bind:value={userForm.password} required placeholder="••••••••" />
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;">
+          <button type="button" class="btn btn-ghost" on:click={() => showUserModal=false}>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Crear Usuario</button>
+        </div>
+      </form>
     </div>
   </div>
 {/if}

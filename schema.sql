@@ -125,10 +125,6 @@ INSERT INTO responsables_despacho (nombre, dni) VALUES
 ('María González', '38291043'),
 ('Carlos Rodríguez', '52109834');
 
--- Usuarios por defecto (Contraseña: camposol123)
--- Hash: $2a$10$tu9eWVeP/UZcWaEnefWTBePxu9oi3F6x3ZtqVG.BAVkxbwvYoVoXq
+-- Usuario Administrador Inicial (Contraseña por defecto: camposol123)
 INSERT INTO usuarios (email, password_hash, nombre, role) VALUES
-('planificador@camposol.com', '$2a$10$tu9eWVeP/UZcWaEnefWTBePxu9oi3F6x3ZtqVG.BAVkxbwvYoVoXq', 'Planificador Venta Nacional', 'Planificador'),
-('frio@camposol.com', '$2a$10$tu9eWVeP/UZcWaEnefWTBePxu9oi3F6x3ZtqVG.BAVkxbwvYoVoXq', 'Responsable Cadena Frio', 'Cadena de frío'),
-('despacho@camposol.com', '$2a$10$tu9eWVeP/UZcWaEnefWTBePxu9oi3F6x3ZtqVG.BAVkxbwvYoVoXq', 'Responsable Despacho', 'Despacho'),
-('admin@camposol.com', '$2a$10$tu9eWVeP/UZcWaEnefWTBePxu9oi3F6x3ZtqVG.BAVkxbwvYoVoXq', 'Administrador Camposol', 'Administrador');
+('yespinoza@camposol.com', '$2a$10$tu9eWVeP/UZcWaEnefWTBePxu9oi3F6x3ZtqVG.BAVkxbwvYoVoXq', 'Yasser Espinoza', 'Administrador');
