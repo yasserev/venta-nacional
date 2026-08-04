@@ -57,7 +57,7 @@ let useMock = false;
 
 const mockData = {
   usuarios: [
-    { id: 1, email: 'yespinoza@camposol.com', password_hash: bcrypt.hashSync('camposol123', 10), nombre: 'Yasser Espinoza', role: 'Administrador' }
+    { id: 1, email: 'yespinoza@camposol.com', password_hash: bcrypt.hashSync('Camposol2026!', 10), nombre: 'Yasser Espinoza', role: 'Administrador' }
   ],
   clientes: [
     { id: 1, razon_social: 'Supermercados Peruanos S.A.', ruc: '20100018612', direccion: 'Av. Larco 1230, Miraflores, Lima' },

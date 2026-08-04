@@ -125,6 +125,6 @@ INSERT INTO responsables_despacho (nombre, dni) VALUES
 ('María González', '38291043'),
 ('Carlos Rodríguez', '52109834');
 
--- Usuario Administrador Inicial (Contraseña por defecto: camposol123)
+-- Usuario Administrador Inicial
 INSERT INTO usuarios (email, password_hash, nombre, role) VALUES
-('yespinoza@camposol.com', '$2a$10$tu9eWVeP/UZcWaEnefWTBePxu9oi3F6x3ZtqVG.BAVkxbwvYoVoXq', 'Yasser Espinoza', 'Administrador');
+('yespinoza@camposol.com', '$2a$10$V.Tdwe4YP2MJtMsZIuo4SObBdN7BjU3UHSOPJCd54.btOjbprlb6C', 'Yasser Espinoza', 'Administrador');

@@ -1202,13 +1202,6 @@
         </div>
         <button type="submit" class="btn btn-primary" style="width:100%;margin-top:16px;padding:12px;">Iniciar Sesión</button>
       </form>
-      <div style="margin-top:24px;border-top:1px solid var(--gray-200);padding-top:16px;font-size:0.75rem;color:var(--gray-600);text-align:center;">
-        <p>Usuario Administrador por defecto:</p>
-        <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;text-align:left;background:var(--gray-100);padding:8px;border-radius:4px;">
-          <div>• Email: <code>yespinoza@camposol.com</code></div>
-          <div>• Contraseña: <code>camposol123</code></div>
-        </div>
-      </div>
     </div>
   </div>
 
