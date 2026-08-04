@@ -9,6 +9,7 @@
   // Auth
   let email = '';
   let password = '';
+  let showPassword = false;
   let authError = '';
 
   // Master Data
@@ -1276,7 +1277,18 @@
         </div>
         <div class="form-group">
           <label class="form-label" for="password">Contraseña</label>
-          <input type="password" id="password" class="form-control" bind:value={password} required placeholder="••••••••" />
+          <div style="position:relative;display:flex;align-items:center;">
+            <input type={showPassword ? 'text' : 'password'} id="password" class="form-control" bind:value={password} required placeholder="••••••••" style="padding-right:42px;" />
+            <button
+              type="button"
+              on:click={() => showPassword = !showPassword}
+              style="position:absolute;right:10px;background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--gray-600);padding:4px;display:flex;align-items:center;user-select:none;"
+              title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+            >
+              {showPassword ? '🙈' : '👁️'}
+            </button>
+          </div>
         </div>
         <button type="submit" class="btn btn-primary" style="width:100%;margin-top:16px;padding:12px;">Iniciar Sesión</button>
       </form>
