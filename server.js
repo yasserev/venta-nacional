@@ -616,10 +616,17 @@ app.put('/api/unidades-medida/:id', authenticateToken, checkRole(['Administrador
 
 app.get('/api/responsables-despacho', authenticateToken, async (req, res) => {
   try {
+    const includeInactive = req.query.includeInactive === 'true';
     if (useMock) {
-      res.json(mockData.responsables_despacho.filter(r => r.activo));
+      const data = includeInactive
+        ? mockData.responsables_despacho
+        : mockData.responsables_despacho.filter(r => r.activo);
+      res.json(data);
     } else {
-      const result = await pool.query('SELECT * FROM responsables_despacho WHERE activo = TRUE ORDER BY nombre ASC');
+      const query = includeInactive
+        ? 'SELECT * FROM responsables_despacho ORDER BY nombre ASC'
+        : 'SELECT * FROM responsables_despacho WHERE activo = TRUE ORDER BY nombre ASC';
+      const result = await pool.query(query);
       res.json(result.rows);
     }
   } catch (err) {
@@ -673,8 +680,8 @@ app.put('/api/responsables-despacho/:id', authenticateToken, checkRole(['Despach
       res.json(mockData.responsables_despacho[idx]);
     } else {
       const result = await pool.query(
-        'UPDATE responsables_despacho SET nombre=$1, dni=$2, activo=$3 WHERE id=$4 RETURNING *',
-        [(nombre || '').trim(), (dni || '').trim(), activo, id]
+        'UPDATE responsables_despacho SET nombre=$1, dni=$2, activo=COALESCE($3, activo) WHERE id=$4 RETURNING *',
+        [(nombre || '').trim(), (dni || '').trim(), activo !== undefined ? activo : null, id]
       );
       if (result.rows.length === 0) return res.status(404).json({ message: 'Responsable no encontrado' });
       res.json(result.rows[0]);
@@ -1204,8 +1211,8 @@ app.put('/api/viajes/:id/pallets-grupo/:numeroPallet', authenticateToken, checkR
       if (groupPallets.length === 0) return res.status(404).json({ message: 'Grupo de pallet no encontrado' });
 
       const totalPesoProd = groupPallets.reduce((s, p) => s + (parseFloat(p.peso_produccion) || 0), 0);
-      const diffAbs = Math.abs(despacho - totalPesoProd);
-      const desviacion = totalPesoProd > 0 ? parseFloat(((diffAbs / totalPesoProd) * 100).toFixed(2)) : 0;
+      const diff = despacho - totalPesoProd;
+      const desviacion = totalPesoProd > 0 ? parseFloat(((diff / totalPesoProd) * 100).toFixed(1)) : 0;
 
       groupPallets.forEach(p => {
         p.peso_bruto = bruto; p.peso_tara = tara; p.peso_despacho = despacho; p.desviacion = desviacion;
@@ -1223,8 +1230,8 @@ app.put('/api/viajes/:id/pallets-grupo/:numeroPallet', authenticateToken, checkR
         [id, numeroPallet]
       );
       const totalPesoProd = parseFloat(pesoResult.rows[0].total);
-      const diffAbs = Math.abs(despacho - totalPesoProd);
-      const desviacion = totalPesoProd > 0 ? parseFloat(((diffAbs / totalPesoProd) * 100).toFixed(2)) : 0;
+      const diff = despacho - totalPesoProd;
+      const desviacion = totalPesoProd > 0 ? parseFloat(((diff / totalPesoProd) * 100).toFixed(1)) : 0;
 
       await pool.query(
         'UPDATE pallets SET peso_bruto=$1, peso_tara=$2, peso_despacho=$3, desviacion=$4 WHERE viaje_id=$5 AND numero_pallet=$6',
@@ -1413,11 +1420,201 @@ app.get('/api/viajes/:id/vale', authenticateToken, async (req, res) => {
   }
 });
 
+// ── REPORTES ─────────────────────────────────────────────────────────────────
+
+app.get('/api/reportes/resumen-pallets', authenticateToken, async (req, res) => {
+  const { fecha_inicio, fecha_fin, cliente_id, codigo_viaje } = req.query;
+  console.log('[SERVER GET /api/reportes/resumen-pallets]', { fecha_inicio, fecha_fin, cliente_id, codigo_viaje, useMock });
+  try {
+    if (useMock) {
+      let filteredViajes = [...mockData.viajes];
+      if (fecha_inicio) {
+        const start = new Date(fecha_inicio);
+        filteredViajes = filteredViajes.filter(v => new Date(v.fecha_hora_despacho) >= start);
+      }
+      if (fecha_fin) {
+        const end = new Date(fecha_fin);
+        end.setHours(23, 59, 59, 999);
+        filteredViajes = filteredViajes.filter(v => new Date(v.fecha_hora_despacho) <= end);
+      }
+      if (cliente_id) {
+        filteredViajes = filteredViajes.filter(v => v.cliente_id === parseInt(cliente_id));
+      }
+      if (codigo_viaje) {
+        filteredViajes = filteredViajes.filter(v => v.codigo_viaje.toLowerCase().includes(codigo_viaje.toLowerCase()));
+      }
+
+      const viajeIds = new Set(filteredViajes.map(v => v.id));
+      const filteredPallets = mockData.pallets.filter(p => viajeIds.has(p.viaje_id));
+
+      const groupsMap = {};
+      filteredPallets.forEach(p => {
+        const key = `${p.viaje_id}_${p.numero_pallet}`;
+        const v = filteredViajes.find(x => x.id === p.viaje_id);
+        const c = mockData.clientes.find(x => x.id === v.cliente_id);
+        if (!groupsMap[key]) {
+          groupsMap[key] = {
+            viaje_id: v.id,
+            codigo_viaje: v.codigo_viaje,
+            fecha_hora_despacho: v.fecha_hora_despacho,
+            cultivo: v.cultivo,
+            estado: v.estado,
+            cliente_nombre: c ? c.razon_social : '',
+            numero_pallet: p.numero_pallet,
+            codigo_pallet: p.codigo_pallet,
+            variedades: [],
+            cantidad_total: 0,
+            unidad_medida: p.unidad_medida,
+            peso_produccion_total: 0,
+            peso_bruto: p.peso_bruto,
+            peso_tara: p.peso_tara,
+            peso_despacho: p.peso_despacho,
+            desviacion: p.desviacion
+          };
+        }
+        const g = groupsMap[key];
+        if (!g.variedades.includes(p.variedad)) g.variedades.push(p.variedad);
+        g.cantidad_total = parseFloat((g.cantidad_total + (parseFloat(p.cantidad) || 0)).toFixed(3));
+        g.peso_produccion_total = parseFloat((g.peso_produccion_total + (parseFloat(p.peso_produccion) || 0)).toFixed(3));
+        if (p.peso_bruto !== null && p.peso_bruto !== undefined) {
+          g.peso_bruto = p.peso_bruto;
+          g.peso_tara = p.peso_tara;
+          g.peso_despacho = p.peso_despacho;
+          g.desviacion = p.desviacion;
+        }
+      });
+
+      Object.values(groupsMap).forEach(g => {
+        if (g.peso_produccion_total > 0 && g.peso_despacho !== null && g.peso_despacho !== undefined) {
+          g.desviacion = parseFloat(((g.peso_despacho - g.peso_produccion_total) / g.peso_produccion_total * 100).toFixed(1));
+        }
+      });
+
+      const result = Object.values(groupsMap).sort((a, b) => new Date(b.fecha_hora_despacho) - new Date(a.fecha_hora_despacho) || a.numero_pallet - b.numero_pallet);
+      res.json(result);
+    } else {
+      const fInicio = (fecha_inicio && fecha_inicio.trim()) ? fecha_inicio.trim() : null;
+      const fFin = (fecha_fin && fecha_fin.trim()) ? fecha_fin.trim() : null;
+      const cId = (cliente_id && cliente_id.trim()) ? parseInt(cliente_id.trim()) : null;
+      const cViaje = (codigo_viaje && codigo_viaje.trim()) ? codigo_viaje.trim() : null;
+
+      const result = await pool.query(`
+        SELECT
+          v.id as viaje_id,
+          v.codigo_viaje,
+          v.fecha_hora_despacho,
+          v.cultivo,
+          v.estado,
+          c.razon_social as cliente_nombre,
+          p.numero_pallet,
+          MAX(p.codigo_pallet) as codigo_pallet,
+          ARRAY_AGG(DISTINCT p.variedad) as variedades,
+          SUM(p.cantidad) as cantidad_total,
+          MAX(p.unidad_medida) as unidad_medida,
+          SUM(COALESCE(p.peso_produccion, 0)) as peso_produccion_total,
+          MAX(p.peso_bruto) as peso_bruto,
+          MAX(p.peso_tara) as peso_tara,
+          MAX(p.peso_despacho) as peso_despacho,
+          CASE
+            WHEN SUM(COALESCE(p.peso_produccion, 0)) > 0 AND MAX(p.peso_despacho) IS NOT NULL
+            THEN ROUND(((MAX(p.peso_despacho) - SUM(COALESCE(p.peso_produccion, 0))) / SUM(COALESCE(p.peso_produccion, 0))) * 100, 1)
+            ELSE ROUND(COALESCE(MAX(p.desviacion), 0), 1)
+          END as desviacion
+        FROM pallets p
+        JOIN viajes v ON p.viaje_id = v.id
+        LEFT JOIN clientes c ON v.cliente_id = c.id
+        WHERE ($1::timestamp IS NULL OR v.fecha_hora_despacho >= $1::timestamp)
+          AND ($2::timestamp IS NULL OR v.fecha_hora_despacho <= ($2::timestamp + INTERVAL '1 day'))
+          AND ($3::integer IS NULL OR v.cliente_id = $3::integer)
+          AND ($4::text IS NULL OR LOWER(v.codigo_viaje) LIKE LOWER('%' || $4 || '%'))
+        GROUP BY v.id, v.codigo_viaje, v.fecha_hora_despacho, v.cultivo, v.estado, c.razon_social, p.numero_pallet
+        ORDER BY v.fecha_hora_despacho DESC, p.numero_pallet ASC
+      `, [fInicio, fFin, cId, cViaje]);
+      res.json(result.rows);
+    }
+  } catch (err) {
+    console.error('[SERVER ERROR GET /api/reportes/resumen-pallets]', err);
+    res.status(500).json({ message: 'Error interno del servidor', error: String(err?.message || err) });
+  }
+});
+
+app.get('/api/reportes/detalle-pallets', authenticateToken, async (req, res) => {
+  const { fecha_inicio, fecha_fin, cliente_id, codigo_viaje } = req.query;
+  console.log('[SERVER GET /api/reportes/detalle-pallets]', { fecha_inicio, fecha_fin, cliente_id, codigo_viaje, useMock });
+  try {
+    if (useMock) {
+      let filteredViajes = [...mockData.viajes];
+      if (fecha_inicio) {
+        const start = new Date(fecha_inicio);
+        filteredViajes = filteredViajes.filter(v => new Date(v.fecha_hora_despacho) >= start);
+      }
+      if (fecha_fin) {
+        const end = new Date(fecha_fin);
+        end.setHours(23, 59, 59, 999);
+        filteredViajes = filteredViajes.filter(v => new Date(v.fecha_hora_despacho) <= end);
+      }
+      if (cliente_id) {
+        filteredViajes = filteredViajes.filter(v => v.cliente_id === parseInt(cliente_id));
+      }
+      if (codigo_viaje) {
+        filteredViajes = filteredViajes.filter(v => v.codigo_viaje.toLowerCase().includes(codigo_viaje.toLowerCase()));
+      }
+
+      const viajeIds = new Set(filteredViajes.map(v => v.id));
+      const filteredPallets = mockData.pallets.filter(p => viajeIds.has(p.viaje_id));
+
+      const result = filteredPallets.map(p => {
+        const v = filteredViajes.find(x => x.id === p.viaje_id);
+        const c = mockData.clientes.find(x => x.id === v.cliente_id);
+        return {
+          ...p,
+          codigo_viaje: v.codigo_viaje,
+          fecha_hora_despacho: v.fecha_hora_despacho,
+          cultivo: v.cultivo,
+          estado: v.estado,
+          cliente_nombre: c ? c.razon_social : ''
+        };
+      }).sort((a, b) => new Date(b.fecha_hora_despacho) - new Date(a.fecha_hora_despacho) || a.numero_pallet - b.numero_pallet || a.id - b.id);
+      res.json(result);
+    } else {
+      const fInicio = (fecha_inicio && fecha_inicio.trim()) ? fecha_inicio.trim() : null;
+      const fFin = (fecha_fin && fecha_fin.trim()) ? fecha_fin.trim() : null;
+      const cId = (cliente_id && cliente_id.trim()) ? parseInt(cliente_id.trim()) : null;
+      const cViaje = (codigo_viaje && codigo_viaje.trim()) ? codigo_viaje.trim() : null;
+
+      const result = await pool.query(`
+        SELECT
+          p.*,
+          v.codigo_viaje,
+          v.fecha_hora_despacho,
+          v.cultivo,
+          v.estado,
+          c.razon_social as cliente_nombre
+        FROM pallets p
+        JOIN viajes v ON p.viaje_id = v.id
+        LEFT JOIN clientes c ON v.cliente_id = c.id
+        WHERE ($1::timestamp IS NULL OR v.fecha_hora_despacho >= $1::timestamp)
+          AND ($2::timestamp IS NULL OR v.fecha_hora_despacho <= ($2::timestamp + INTERVAL '1 day'))
+          AND ($3::integer IS NULL OR v.cliente_id = $3::integer)
+          AND ($4::text IS NULL OR LOWER(v.codigo_viaje) LIKE LOWER('%' || $4 || '%'))
+        ORDER BY v.fecha_hora_despacho DESC, p.numero_pallet ASC, p.id ASC
+      `, [fInicio, fFin, cId, cViaje]);
+      res.json(result.rows);
+    }
+  } catch (err) {
+    console.error('[SERVER ERROR GET /api/reportes/detalle-pallets]', err);
+    res.status(500).json({ message: 'Error interno del servidor', error: String(err?.message || err) });
+  }
+});
+
 // ── STATIC FILES & STARTUP ────────────────────────────────────────────────────
 
 if (!process.env.VERCEL) {
   app.use(express.static(path.join(__dirname, 'dist')));
   app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ message: `Ruta API no encontrada: ${req.path}` });
+    }
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
   });
   app.listen(PORT, () => {

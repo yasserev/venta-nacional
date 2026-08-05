@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import * as XLSX from 'xlsx';
 
   // ── State Management ────────────────────────────────────────────────────────
   let token = localStorage.getItem('token') || '';
@@ -80,8 +81,11 @@
   let finalizingLoading = false;
   let despachoSavingPallet = null;
 
-  // ── Maestros State (Administrador) ──────────────────────────────────────────
+  // ── Maestros State (Administrador / Despacho) ─────────────────────────────
   let maestroView = 'usuarios';
+  $: if (currentUser?.role === 'Despacho' && maestroView !== 'responsables') {
+    maestroView = 'responsables';
+  }
   let usuariosList = [];
   let showUserModal = false;
   let userForm = { email: '', password: '', nombre: '', role: 'Planificador' };
@@ -90,6 +94,7 @@
   let umForm = { codigo: '', descripcion: '' };
   let umError = '';
   let showRespModal = false;
+  let editingRespId = null;
   let respForm = { nombre: '', dni: '' };
   let respError = '';
   let showCultivoModal = false;
@@ -99,6 +104,14 @@
   let selectedCultivoForVar = null;
   let variedadForm = { nombre: '' };
   let variedadError = '';
+
+  // ── Reportes State ──────────────────────────────────────────────────────────
+  let reportFilter = { fecha_inicio: '', fecha_fin: '', cliente_id: '', codigo_viaje: '' };
+  let reportTab = 'resumen';
+  let reportResumenData = [];
+  let reportDetalleData = [];
+  let reportLoading = false;
+  let reportHasQueried = false;
 
   // ── Forced Password Change State ─────────────────────────────────────────────
   let newPasswordForm = { nueva_clave: '', confirmar_clave: '' };
@@ -159,9 +172,10 @@
     currentWeekStart = next;
   }
 
-  function getWeekLabel() {
-    const start = new Date(currentWeekStart);
-    const end = new Date(currentWeekStart);
+  function getWeekLabel(weekStart) {
+    if (!weekStart) return '';
+    const start = new Date(weekStart);
+    const end = new Date(weekStart);
     end.setDate(end.getDate() + 6);
     const d = new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()));
     const dayNum = d.getUTCDay() || 7;
@@ -243,14 +257,16 @@
     } catch {}
   }
 
-  async function fetchResponsablesDespacho() {
+  async function fetchResponsablesDespacho(includeInactive = false) {
     try {
-      const res = await fetch('/api/responsables-despacho', { headers: { Authorization: `Bearer ${token}` } });
+      const url = includeInactive ? '/api/responsables-despacho?includeInactive=true' : '/api/responsables-despacho';
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) responsablesDespacho = await res.json();
     } catch {}
   }
 
   async function fetchUsuarios() {
+    if (currentUser?.role !== 'Administrador') return;
     try {
       const res = await fetch('/api/usuarios', { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) usuariosList = await res.json();
@@ -347,10 +363,15 @@
   }
 
   $: if (view === 'maestros' && token) {
-    fetchUsuarios();
-    fetchUnidadesMedida();
-    fetchResponsablesDespacho();
-    fetchCultivos();
+    if (currentUser?.role === 'Administrador') {
+      fetchUsuarios();
+      fetchUnidadesMedida();
+      fetchResponsablesDespacho(true);
+      fetchCultivos();
+    } else if (currentUser?.role === 'Despacho') {
+      maestroView = 'responsables';
+      fetchResponsablesDespacho(true);
+    }
   }
 
   onMount(async () => {
@@ -360,7 +381,7 @@
       await fetchViajes();
       await fetchUnidadesMedida();
       await fetchResponsablesDespacho();
-      await fetchUsuarios();
+      if (currentUser?.role === 'Administrador') await fetchUsuarios();
       await fetchCultivos();
     }
   });
@@ -870,7 +891,8 @@
       g.peso_despacho = parseFloat((bruto - tara).toFixed(3));
       const refPeso = parseFloat(g.peso_produccion_total) || 0;
       if (refPeso > 0) {
-        g.desviacion = parseFloat((Math.abs(g.peso_despacho - refPeso) / refPeso * 100).toFixed(2));
+        const diff = g.peso_despacho - refPeso;
+        g.desviacion = parseFloat((diff / refPeso * 100).toFixed(1));
       } else {
         g.desviacion = 0;
       }
@@ -1022,13 +1044,13 @@
   <title>Vale de Salida - ${valeViaje.codigo_viaje}</title>
   <style>
     @page { size: A4 portrait; margin: 12mm 15mm; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; color: #000; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; color: #000; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     table { border-collapse: collapse; width: 100%; }
     .border-table td, .border-table th { border: 1px solid #000; padding: 5px 8px; }
     .no-border td { border: none; padding: 3px 0; }
-    .detail-head th { background: #1a1a1a; color: white; text-align: center; font-weight: bold; padding: 6px; }
-    .total-row td { font-weight: bold; background: #f0f0f0; }
+    .detail-head th { background: #1a1a1a !important; color: white !important; text-align: center; font-weight: bold; padding: 6px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    .total-row td { font-weight: bold; background: #f0f0f0 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .field-row { display: flex; align-items: baseline; margin-bottom: 6px; }
     .field-label { font-weight: bold; min-width: 200px; font-size: 8.5pt; }
     .field-value { border-bottom: 1px solid #000; flex: 1; min-height: 14px; padding: 0 4px; }
@@ -1037,6 +1059,11 @@
     .sub-header { font-size: 8pt; text-align: center; text-transform: uppercase; }
     .doc-num { font-size: 14pt; font-weight: bold; text-align: right; }
     .viaje-num { font-size: 14pt; font-weight: bold; }
+    @media print {
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      .detail-head th { background: #1a1a1a !important; color: white !important; }
+      .total-row td { background: #f0f0f0 !important; }
+    }
   </style>
 </head>
 <body>
@@ -1134,10 +1161,7 @@
       <td style="border:none; width:10%;"></td>
       <td style="border:none; width:45%; vertical-align:top;">
         <strong style="font-size:9pt;">REPRESENTANTE DE CAMPOSOL</strong>
-        <div style="margin-top:45px; border-top:1px solid #000; padding-top:6px; font-size:8.5pt;">
-          <div>Nombre y Apellido: ${respName || '_________________________________'}</div>
-          <div style="margin-top:4px;">DNI: ${respDni || '_________________________________'}</div>
-        </div>
+        <div style="margin-top:45px; padding-top:6px; font-size:8.5pt;"></div>
       </td>
     </tr>
   </table>
@@ -1205,6 +1229,20 @@
     } catch {}
   }
 
+  function openNewRespModal() {
+    editingRespId = null;
+    respForm = { nombre: '', dni: '', activo: true };
+    respError = '';
+    showRespModal = true;
+  }
+
+  function openEditRespModal(resp) {
+    editingRespId = resp.id;
+    respForm = { nombre: resp.nombre, dni: resp.dni, activo: resp.activo };
+    respError = '';
+    showRespModal = true;
+  }
+
   async function submitResp() {
     respError = '';
     if (!respForm.nombre.trim() || !respForm.dni.trim()) {
@@ -1214,8 +1252,10 @@
       respError = 'El DNI debe tener 8 dígitos numéricos'; return;
     }
     try {
-      const res = await fetch('/api/responsables-despacho', {
-        method: 'POST',
+      const url = editingRespId ? `/api/responsables-despacho/${editingRespId}` : '/api/responsables-despacho';
+      const method = editingRespId ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(respForm)
       });
@@ -1223,10 +1263,11 @@
       if (res.ok) {
         showRespModal = false;
         respForm = { nombre: '', dni: '' };
-        await fetchResponsablesDespacho();
-        showNotification('Responsable creado');
+        editingRespId = null;
+        await fetchResponsablesDespacho(true);
+        showNotification(editingRespId ? 'Responsable actualizado' : 'Responsable creado');
       } else {
-        respError = data.message || 'Error al crear';
+        respError = data.message || (editingRespId ? 'Error al actualizar' : 'Error al crear');
       }
     } catch {
       respError = 'Error de conexión';
@@ -1241,10 +1282,169 @@
         body: JSON.stringify({ ...resp, activo: !resp.activo })
       });
       if (res.ok) {
-        await fetchResponsablesDespacho();
+        await fetchResponsablesDespacho(true);
         showNotification(`Responsable ${resp.activo ? 'desactivado' : 'activado'}`);
       }
     } catch {}
+  }
+
+  async function fetchReporte() {
+    reportLoading = true;
+    reportHasQueried = true;
+    try {
+      const params = new URLSearchParams();
+      if (reportFilter.fecha_inicio) params.append('fecha_inicio', reportFilter.fecha_inicio);
+      if (reportFilter.fecha_fin) params.append('fecha_fin', reportFilter.fecha_fin);
+      if (reportFilter.cliente_id) params.append('cliente_id', reportFilter.cliente_id);
+      if (reportFilter.codigo_viaje) params.append('codigo_viaje', reportFilter.codigo_viaje.trim());
+
+      console.log('🔍 [REPORTES CLIENT] Petición enviada con params:', params.toString());
+
+      const [resResumen, resDetalle] = await Promise.all([
+        fetch(`/api/reportes/resumen-pallets?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/reportes/detalle-pallets?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+
+      console.log('📡 [REPORTES CLIENT] Estado HTTP Resumen:', resResumen.status, resResumen.statusText);
+      console.log('📡 [REPORTES CLIENT] Estado HTTP Detalle:', resDetalle.status, resDetalle.statusText);
+
+      const textResumen = await resResumen.text();
+      const textDetalle = await resDetalle.text();
+
+      let jsonResumen = null;
+      let jsonDetalle = null;
+
+      try { jsonResumen = JSON.parse(textResumen); } catch (e) { console.error('❌ [REPORTES CLIENT] Error parseando JSON Resumen:', textResumen); }
+      try { jsonDetalle = JSON.parse(textDetalle); } catch (e) { console.error('❌ [REPORTES CLIENT] Error parseando JSON Detalle:', textDetalle); }
+
+      if (resResumen.ok && resDetalle.ok && Array.isArray(jsonResumen) && Array.isArray(jsonDetalle)) {
+        reportResumenData = jsonResumen;
+        reportDetalleData = jsonDetalle;
+        console.log('✅ [REPORTES CLIENT] Datos recibidos correctamente:', { resumenCount: reportResumenData.length, detalleCount: reportDetalleData.length });
+      } else {
+        const msg = (jsonResumen && (jsonResumen.message || jsonResumen.error)) || (jsonDetalle && (jsonDetalle.message || jsonDetalle.error)) || `HTTP ${resResumen.status}/${resDetalle.status}`;
+        console.error('❌ [REPORTES CLIENT] Error devuelto por servidor:', msg);
+        showNotification(`Error del servidor: ${msg}`, 'danger');
+      }
+    } catch (err) {
+      console.error('💥 [REPORTES CLIENT EXCEPTION]', err);
+      showNotification(`Error de conexión: ${err?.message || err}`, 'danger');
+    } finally {
+      reportLoading = false;
+    }
+  }
+
+  function exportarReporteXLSX() {
+    const isResumen = reportTab === 'resumen';
+    const data = isResumen ? reportResumenData : reportDetalleData;
+    if (!data || data.length === 0) {
+      showNotification('No hay datos para exportar', 'danger'); return;
+    }
+
+    let exportRows = [];
+
+    if (isResumen) {
+      exportRows = data.map(r => ({
+        'Viaje': r.codigo_viaje || '',
+        'Fecha Despacho': formatDateTimeReadable(r.fecha_hora_despacho),
+        'Cliente': r.cliente_nombre || '',
+        'Cultivo': r.cultivo || '',
+        'N° Pallet': `Pallet ${r.numero_pallet}`,
+        'Variedades': Array.isArray(r.variedades) ? r.variedades.join(', ') : (r.variedades || ''),
+        'Cantidad Total': parseFloat(r.cantidad_total || 0),
+        'Unidad Medida': r.unidad_medida || '',
+        'Peso Producción (kg)': parseFloat(r.peso_produccion_total || 0),
+        'Peso Bruto (kg)': r.peso_bruto !== null && r.peso_bruto !== undefined ? parseFloat(r.peso_bruto) : '',
+        'Tara (kg)': r.peso_tara !== null && r.peso_tara !== undefined ? parseFloat(r.peso_tara) : '',
+        'Peso Despacho (kg)': r.peso_despacho !== null && r.peso_despacho !== undefined ? parseFloat(r.peso_despacho) : '',
+        'Desviación (%)': r.desviacion !== null && r.desviacion !== undefined ? parseFloat(parseFloat(r.desviacion).toFixed(1)) : '',
+        'Estado Viaje': r.estado || ''
+      }));
+    } else {
+      exportRows = data.map(r => ({
+        'Viaje': r.codigo_viaje || '',
+        'Fecha Despacho': formatDateTimeReadable(r.fecha_hora_despacho),
+        'Cliente': r.cliente_nombre || '',
+        'Cultivo': r.cultivo || '',
+        'N° Pallet': `Pallet ${r.numero_pallet}`,
+        'Código Pallet': r.codigo_pallet || '',
+        'Fecha Cosecha': r.fecha_cosecha ? formatDateReadable(r.fecha_cosecha) : '',
+        'Procedencia': r.procedencia || '',
+        'Variedad': r.variedad || '',
+        'Cantidad': parseFloat(r.cantidad || 0),
+        'Unidad Medida': r.unidad_medida || '',
+        'Peso Prod. (kg)': parseFloat(r.peso_produccion || 0),
+        'Precinto': r.precinto || ''
+      }));
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, isResumen ? 'Resumen Pallets' : 'Detalle Cosecha');
+    XLSX.writeFile(workbook, `Reporte_${isResumen ? 'Resumen' : 'Detalle'}_Pallets_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
+  function exportarReporteCSV() {
+    const isResumen = reportTab === 'resumen';
+    const data = isResumen ? reportResumenData : reportDetalleData;
+    if (!data || data.length === 0) {
+      showNotification('No hay datos para exportar', 'danger'); return;
+    }
+
+    let headers = [];
+    let rows = [];
+
+    if (isResumen) {
+      headers = ['Viaje', 'Fecha Despacho', 'Cliente', 'Cultivo', 'N° Pallet', 'Código Pallet', 'Variedades', 'Cantidad Total', 'Unidad Medida', 'Peso Producción (kg)', 'Peso Bruto (kg)', 'Tara (kg)', 'Peso Despacho (kg)', 'Desviación (%)', 'Estado Viaje'];
+      rows = data.map(r => [
+        r.codigo_viaje || '',
+        formatDateTimeReadable(r.fecha_hora_despacho),
+        `"${(r.cliente_nombre || '').replace(/"/g, '""')}"`,
+        r.cultivo || '',
+        r.numero_pallet,
+        r.codigo_pallet || '',
+        `"${(Array.isArray(r.variedades) ? r.variedades.join(', ') : (r.variedades || '')).replace(/"/g, '""')}"`,
+        parseFloat(r.cantidad_total || 0).toFixed(3),
+        r.unidad_medida || '',
+        parseFloat(r.peso_produccion_total || 0).toFixed(3),
+        r.peso_bruto !== null && r.peso_bruto !== undefined ? parseFloat(r.peso_bruto).toFixed(3) : '-',
+        r.peso_tara !== null && r.peso_tara !== undefined ? parseFloat(r.peso_tara).toFixed(3) : '-',
+        r.peso_despacho !== null && r.peso_despacho !== undefined ? parseFloat(r.peso_despacho).toFixed(3) : '-',
+        r.desviacion !== null && r.desviacion !== undefined ? `${parseFloat(r.desviacion).toFixed(2)}%` : '-',
+        r.estado || ''
+      ]);
+    } else {
+      headers = ['Viaje', 'Fecha Despacho', 'Cliente', 'Cultivo', 'N° Pallet', 'Código Pallet', 'Fecha Cosecha', 'Procedencia', 'Variedad', 'Cantidad', 'Unidad Medida', 'Peso Prod. (kg)', 'Precinto', 'Peso Bruto (kg)', 'Tara (kg)', 'Peso Despacho (kg)', 'Desviación (%)'];
+      rows = data.map(r => [
+        r.codigo_viaje || '',
+        formatDateTimeReadable(r.fecha_hora_despacho),
+        `"${(r.cliente_nombre || '').replace(/"/g, '""')}"`,
+        r.cultivo || '',
+        r.numero_pallet,
+        r.codigo_pallet || '',
+        r.fecha_cosecha ? formatDateReadable(r.fecha_cosecha) : '-',
+        `"${(r.procedencia || '').replace(/"/g, '""')}"`,
+        r.variedad || '',
+        parseFloat(r.cantidad || 0).toFixed(3),
+        r.unidad_medida || '',
+        parseFloat(r.peso_produccion || 0).toFixed(3),
+        r.precinto || '-',
+        r.peso_bruto !== null && r.peso_bruto !== undefined ? parseFloat(r.peso_bruto).toFixed(3) : '-',
+        r.peso_tara !== null && r.peso_tara !== undefined ? parseFloat(r.peso_tara).toFixed(3) : '-',
+        r.peso_despacho !== null && r.peso_despacho !== undefined ? parseFloat(r.peso_despacho).toFixed(3) : '-',
+        r.desviacion !== null && r.desviacion !== undefined ? `${parseFloat(r.desviacion).toFixed(2)}%` : '-'
+      ]);
+    }
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Reporte_${isResumen ? 'Resumen' : 'Detalle'}_Pallets_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 </script>
 
@@ -1472,9 +1672,10 @@
         <div class="nav-tab {view === 'despacho' ? 'active' : ''}" on:click={() => view = 'despacho'}>Despacho</div>
         <div class="nav-tab {view === 'vales' ? 'active' : ''}" on:click={() => view = 'vales'}>Vales de Salida</div>
       {/if}
-      {#if currentUser?.role === 'Administrador'}
-        <div class="nav-tab {view === 'maestros' ? 'active' : ''}" on:click={() => view = 'maestros'}>Maestros</div>
+      {#if currentUser?.role === 'Administrador' || currentUser?.role === 'Despacho'}
+        <div class="nav-tab {view === 'maestros' ? 'active' : ''}" on:click={() => { view = 'maestros'; if (currentUser?.role === 'Despacho') maestroView = 'responsables'; fetchResponsablesDespacho(true); }}>Maestros</div>
       {/if}
+      <div class="nav-tab {view === 'reportes' ? 'active' : ''}" on:click={() => view = 'reportes'}>Reportes</div>
     </nav>
 
     <main class="main-content">
@@ -1489,7 +1690,7 @@
             </div>
             <div style="display:flex;align-items:center;gap:8px;background:var(--gray-100);padding:6px;border-radius:var(--radius-sm);">
               <button class="btn btn-ghost" on:click={() => changeWeek(-1)} style="padding:6px 12px;font-size:0.85rem;">◀ Ant</button>
-              <span style="font-weight:700;font-size:0.9rem;padding:0 12px;min-width:220px;text-align:center;">{getWeekLabel()}</span>
+              <span style="font-weight:700;font-size:0.9rem;padding:0 12px;min-width:220px;text-align:center;">{getWeekLabel(currentWeekStart)}</span>
               <button class="btn btn-ghost" on:click={() => changeWeek(1)} style="padding:6px 12px;font-size:0.85rem;">Sig ▶</button>
             </div>
           </div>
@@ -1984,8 +2185,17 @@
                           <td style="font-weight:600;">{g.peso_despacho > 0 ? formatDecimal(g.peso_despacho) : '-'}</td>
                           <td>
                             {#if g.peso_despacho > 0}
-                              <span class="badge {isAlert ? 'alert-pulse' : ''}" style="background:{isAlert ? 'var(--danger)' : 'var(--success)'};color:white;">
-                                {g.desviacion}% {isAlert ? '⚠️' : ''}
+                              {@const dVal = parseFloat(g.desviacion)}
+                              {@const absDev = Math.abs(dVal)}
+                              {@const isAlert = absDev > 3.0}
+                              <span class="badge {isAlert ? 'alert-pulse' : ''}" style="background:{isAlert ? (dVal > 0 ? '#FEF3C7' : '#FEE2E2') : '#D1FAE5'};color:{isAlert ? (dVal > 0 ? '#D97706' : '#991B1B') : '#065F46'};font-weight:700;">
+                                {#if dVal > 0}
+                                  ⬆ +{dVal.toFixed(1)}%
+                                {:else if dVal < 0}
+                                  ⬇ {dVal.toFixed(1)}%
+                                {:else}
+                                  ✓ 0.0%
+                                {/if}
                               </span>
                             {:else}
                               -
@@ -2168,10 +2378,14 @@
         <div class="card animate-fade-in">
           <h2 style="font-weight:800;font-size:1.5rem;color:var(--primary);margin-bottom:20px;">Tablas Maestras</h2>
           <div style="display:flex;gap:8px;margin-bottom:24px;">
-            <button class="variedad-tab-btn {maestroView === 'cultivos' ? 'active' : ''}" on:click={() => maestroView = 'cultivos'}>Cultivos y Variedades</button>
-            <button class="variedad-tab-btn {maestroView === 'usuarios' ? 'active' : ''}" on:click={() => maestroView = 'usuarios'}>Usuarios del Sistema</button>
-            <button class="variedad-tab-btn {maestroView === 'unidades' ? 'active' : ''}" on:click={() => maestroView = 'unidades'}>Unidades de Medida</button>
-            <button class="variedad-tab-btn {maestroView === 'responsables' ? 'active' : ''}" on:click={() => maestroView = 'responsables'}>Responsables de Despacho</button>
+            {#if currentUser?.role === 'Administrador'}
+              <button class="variedad-tab-btn {maestroView === 'cultivos' ? 'active' : ''}" on:click={() => maestroView = 'cultivos'}>Cultivos y Variedades</button>
+              <button class="variedad-tab-btn {maestroView === 'usuarios' ? 'active' : ''}" on:click={() => maestroView = 'usuarios'}>Usuarios del Sistema</button>
+              <button class="variedad-tab-btn {maestroView === 'unidades' ? 'active' : ''}" on:click={() => maestroView = 'unidades'}>Unidades de Medida</button>
+            {/if}
+            {#if currentUser?.role === 'Administrador' || currentUser?.role === 'Despacho'}
+              <button class="variedad-tab-btn {maestroView === 'responsables' ? 'active' : ''}" on:click={() => { maestroView = 'responsables'; fetchResponsablesDespacho(true); }}>Responsables de Despacho</button>
+            {/if}
           </div>
 
           {#if maestroView === 'cultivos'}
@@ -2302,7 +2516,7 @@
           {:else if maestroView === 'responsables'}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
               <h3 style="font-weight:700;font-size:1.1rem;">Responsables de Despacho</h3>
-              <button class="btn btn-primary" on:click={() => { respForm = { nombre:'', dni:'' }; respError=''; showRespModal=true; }}>+ Nuevo Responsable</button>
+              <button class="btn btn-primary" on:click={openNewRespModal}>+ Nuevo Responsable</button>
             </div>
             <div class="custom-table-container">
               <table class="custom-table">
@@ -2318,6 +2532,9 @@
                         </span>
                       </td>
                       <td style="text-align:right;">
+                        <button class="btn btn-ghost" style="padding:5px 12px;font-size:0.8rem;margin-right:4px;" on:click={() => openEditRespModal(r)}>
+                          Editar
+                        </button>
                         <button class="btn btn-ghost" style="padding:5px 12px;font-size:0.8rem;" on:click={() => toggleRespActivo(r)}>
                           {r.activo ? 'Desactivar' : 'Activar'}
                         </button>
@@ -2327,6 +2544,195 @@
                 </tbody>
               </table>
             </div>
+          {/if}
+        </div>
+
+      <!-- ══ REPORTES ══════════════════════════════════════════════════════════ -->
+      {:else if view === 'reportes'}
+        <div class="card animate-fade-in">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:16px;">
+            <div>
+              <h2 style="font-weight:800;font-size:1.5rem;color:var(--primary);">Módulo de Reportes de Carga y Despacho</h2>
+              <p style="color:var(--gray-600);font-size:0.9rem;">Consulta de pallets, datos de Cadena de Frío y registro final de pesaje por Despacho</p>
+            </div>
+            {#if reportHasQueried && ((reportTab === 'resumen' && reportResumenData.length > 0) || (reportTab === 'detalle' && reportDetalleData.length > 0))}
+              <button class="btn btn-primary" style="background:#059669;border-color:#059669;" on:click={exportarReporteXLSX}>
+                📥 Exportar a Excel (.xlsx)
+              </button>
+            {/if}
+          </div>
+
+          <!-- Filtros bajo demanda -->
+          <div class="card" style="background:var(--light);border:1px solid var(--gray-200);padding:20px;margin-bottom:24px;">
+            <div style="font-weight:700;font-size:0.95rem;margin-bottom:12px;color:var(--primary);">🔍 Filtros de Consulta</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;align-items:end;">
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" for="rep-f-inicio">Fecha Inicio</label>
+                <input type="date" id="rep-f-inicio" class="form-control" bind:value={reportFilter.fecha_inicio} />
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" for="rep-f-fin">Fecha Fin</label>
+                <input type="date" id="rep-f-fin" class="form-control" bind:value={reportFilter.fecha_fin} />
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" for="rep-cli">Cliente</label>
+                <select id="rep-cli" class="form-control" bind:value={reportFilter.cliente_id}>
+                  <option value="">-- Todos los Clientes --</option>
+                  {#each clientes as c}
+                    <option value={c.id}>{c.razon_social}</option>
+                  {/each}
+                </select>
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" for="rep-cod">Código de Viaje</label>
+                <input type="text" id="rep-cod" class="form-control" bind:value={reportFilter.codigo_viaje} placeholder="ej. A26-025" />
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-primary" style="width:100%;height:40px;" on:click={fetchReporte} disabled={reportLoading}>
+                  {reportLoading ? '⏳ Cargando...' : '🔍 Consultar Reporte'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Selector de Vista del Reporte -->
+          <div style="display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid var(--gray-200);padding-bottom:12px;">
+            <button class="variedad-tab-btn {reportTab === 'resumen' ? 'active' : ''}" on:click={() => reportTab = 'resumen'}>
+              📊 Resumen por pallet
+            </button>
+            <button class="variedad-tab-btn {reportTab === 'detalle' ? 'active' : ''}" on:click={() => reportTab = 'detalle'}>
+              📋 Detalle de pallets
+            </button>
+          </div>
+
+          {#if !reportHasQueried}
+            <div style="text-align:center;padding:48px 16px;color:var(--gray-600);background:var(--light);border-radius:var(--radius-md);border:1px dashed var(--gray-300);">
+              <div style="font-size:2rem;margin-bottom:8px;">🔎</div>
+              <div style="font-weight:700;font-size:1.1rem;margin-bottom:4px;color:var(--primary);">Consulta Bajo Demanda</div>
+              <p style="font-size:0.9rem;">Ingresa los filtros requeridos en la sección superior y presiona <strong>Consultar Reporte</strong> para visualizar la información.</p>
+            </div>
+          {:else if reportLoading}
+            <div style="text-align:center;padding:48px;color:var(--primary);font-weight:700;">
+              ⏳ Obteniendo registros desde el servidor...
+            </div>
+          {:else}
+            <!-- RESUMEN POR PALLET -->
+            {#if reportTab === 'resumen'}
+              {#if reportResumenData.length === 0}
+                <div style="text-align:center;color:var(--gray-600);padding:32px;">No se encontraron registros de pallets para los filtros seleccionados.</div>
+              {:else}
+                <div style="margin-bottom:12px;font-size:0.85rem;color:var(--gray-600);">
+                  Mostrando <strong>{reportResumenData.length}</strong> pallets agrupados.
+                </div>
+                <div class="custom-table-container">
+                  <table class="custom-table">
+                    <thead>
+                      <tr>
+                        <th>Viaje</th>
+                        <th>Fecha Despacho</th>
+                        <th>Cliente</th>
+                        <th>N° Pallet</th>
+                        <th>Variedades</th>
+                        <th>Cantidad Total</th>
+                        <th>Peso Prod. (kg)</th>
+                        <th>Bruto (kg)</th>
+                        <th>Tara (kg)</th>
+                        <th>Peso Despacho (kg)</th>
+                        <th>Desviación</th>
+                        <th>Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each reportResumenData as r}
+                        <tr>
+                          <td style="font-weight:700;color:var(--primary);">{r.codigo_viaje}</td>
+                          <td>{formatDateTimeReadable(r.fecha_hora_despacho)}</td>
+                          <td style="font-size:0.85rem;font-weight:600;">{r.cliente_nombre || '-'}</td>
+                          <td style="font-weight:700;text-align:center;">Pallet {r.numero_pallet}</td>
+                          <td>
+                            <div class="variedad-chips">
+                              {#each (Array.isArray(r.variedades) ? r.variedades : [r.variedades]) as v_}
+                                <span class="variedad-chip">{v_}</span>
+                              {/each}
+                            </div>
+                          </td>
+                          <td style="font-weight:600;">{parseFloat(r.cantidad_total || 0).toLocaleString('es-PE')} {r.unidad_medida || ''}</td>
+                          <td style="font-weight:600;">{parseFloat(r.peso_produccion_total || 0).toLocaleString('es-PE', {minimumFractionDigits:3})} kg</td>
+                          <td>{r.peso_bruto !== null && r.peso_bruto !== undefined ? parseFloat(r.peso_bruto).toFixed(3) : '-'}</td>
+                          <td>{r.peso_tara !== null && r.peso_tara !== undefined ? parseFloat(r.peso_tara).toFixed(3) : '-'}</td>
+                          <td style="font-weight:700;color:var(--primary);">{r.peso_despacho !== null && r.peso_despacho !== undefined ? parseFloat(r.peso_despacho).toFixed(3) : '-'}</td>
+                          <td>
+                            {#if r.desviacion !== null && r.desviacion !== undefined}
+                              {@const dVal = parseFloat(r.desviacion)}
+                              {@const absDev = Math.abs(dVal)}
+                              {@const isAlert = absDev > 5.0}
+                              <span class="badge" style="background:{isAlert ? (dVal > 0 ? '#FEF3C7' : '#FEE2E2') : '#D1FAE5'};color:{isAlert ? (dVal > 0 ? '#D97706' : '#991B1B') : '#065F46'};font-weight:700;">
+                                {#if dVal > 0}
+                                  ⬆ +{dVal.toFixed(1)}%
+                                {:else if dVal < 0}
+                                  ⬇ {dVal.toFixed(1)}%
+                                {:else}
+                                  ✓ 0.0%
+                                {/if}
+                              </span>
+                            {:else}
+                              -
+                            {/if}
+                          </td>
+                          <td><span class="badge badge-{String(r.estado).toLowerCase()}">{r.estado}</span></td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+
+            <!-- DETALLE COMPLETO -->
+            {:else if reportTab === 'detalle'}
+              {#if reportDetalleData.length === 0}
+                <div style="text-align:center;color:var(--gray-600);padding:32px;">No se encontraron detalles de pallets para los filtros seleccionados.</div>
+              {:else}
+                <div style="margin-bottom:12px;font-size:0.85rem;color:var(--gray-600);">
+                  Mostrando <strong>{reportDetalleData.length}</strong> líneas detalladas de Cadena de Frío.
+                </div>
+                <div class="custom-table-container">
+                  <table class="custom-table">
+                    <thead>
+                      <tr>
+                        <th>Viaje</th>
+                        <th>Fecha Despacho</th>
+                        <th>Cliente</th>
+                        <th>N° Pallet</th>
+                        <th>Código Pallet</th>
+                        <th>Variedad</th>
+                        <th>Fecha Cosecha</th>
+                        <th>Procedencia</th>
+                        <th>Cantidad</th>
+                        <th>Peso Prod. (kg)</th>
+                        <th>Precinto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each reportDetalleData as r}
+                        <tr>
+                          <td style="font-weight:700;color:var(--primary);">{r.codigo_viaje}</td>
+                          <td>{formatDateTimeReadable(r.fecha_hora_despacho)}</td>
+                          <td style="font-size:0.85rem;font-weight:600;">{r.cliente_nombre || '-'}</td>
+                          <td style="font-weight:700;text-align:center;">Pallet {r.numero_pallet}</td>
+                          <td><span class="info-tag">{r.codigo_pallet || '-'}</span></td>
+                          <td><strong>{r.variedad}</strong></td>
+                          <td>{r.fecha_cosecha ? formatDateReadable(r.fecha_cosecha) : '-'}</td>
+                          <td>{r.procedencia || '-'}</td>
+                          <td style="font-weight:600;">{parseFloat(r.cantidad || 0).toLocaleString('es-PE')} {r.unidad_medida || ''}</td>
+                          <td style="font-weight:600;">{parseFloat(r.peso_produccion || 0).toLocaleString('es-PE', {minimumFractionDigits:3})} kg</td>
+                          <td>{r.precinto || '-'}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            {/if}
           {/if}
         </div>
       {/if}
@@ -2473,29 +2879,31 @@
   </div>
 {/if}
 
-<!-- ══ MODAL: Nuevo Responsable de Despacho ═════════════════════════════════ -->
+<!-- ══ MODAL: Responsable de Despacho ═════════════════════════════════════ -->
 {#if showRespModal}
   <div class="modal-overlay" style="z-index:1050;">
-    <div class="modal-content animate-fade-in" style="max-width:400px;">
+    <div class="modal-content animate-fade-in" style="max-width:440px;">
       <div class="modal-header">
-        <h3 style="font-weight:800;font-size:1.2rem;color:var(--primary);">Nuevo Responsable de Despacho</h3>
+        <h3 style="font-weight:800;font-size:1.2rem;color:var(--primary);">{editingRespId ? 'Editar Responsable de Despacho' : 'Nuevo Responsable de Despacho'}</h3>
         <button class="btn btn-ghost" on:click={() => showRespModal=false} style="padding:4px 8px;font-size:0.8rem;">✕</button>
       </div>
       {#if respError}
         <div style="background:var(--danger-light);color:var(--danger);padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:16px;font-size:0.85rem;">{respError}</div>
       {/if}
-      <div class="form-group">
-        <label class="form-label">Nombre y Apellidos</label>
-        <input type="text" class="form-control" bind:value={respForm.nombre} placeholder="Samuel Pacheco" />
-      </div>
-      <div class="form-group">
-        <label class="form-label">DNI (8 dígitos)</label>
-        <input type="text" class="form-control" bind:value={respForm.dni} placeholder="45231876" maxlength="8" />
-      </div>
-      <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;">
-        <button class="btn btn-ghost" on:click={() => showRespModal=false}>Cancelar</button>
-        <button class="btn btn-primary" on:click={submitResp}>Crear</button>
-      </div>
+      <form on:submit|preventDefault={submitResp}>
+        <div class="form-group">
+          <label class="form-label" for="resp-nombre">Nombre y Apellidos *</label>
+          <input type="text" id="resp-nombre" class="form-control" bind:value={respForm.nombre} required placeholder="Samuel Pacheco" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="resp-dni">DNI (8 dígitos) *</label>
+          <input type="text" id="resp-dni" class="form-control" bind:value={respForm.dni} required placeholder="45231876" maxlength="8" />
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;">
+          <button type="button" class="btn btn-ghost" on:click={() => showRespModal=false}>Cancelar</button>
+          <button type="submit" class="btn btn-primary">{editingRespId ? 'Guardar Cambios' : 'Crear'}</button>
+        </div>
+      </form>
     </div>
   </div>
 {/if}
